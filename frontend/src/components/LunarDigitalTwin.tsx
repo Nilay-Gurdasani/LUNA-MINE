@@ -117,7 +117,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.35; // Blinding contrast of vacuum solar illumination
+    renderer.toneMappingExposure = 1.15; // Soft, calibrated lunar exposure (limits harsh noise and prevents chalky blown-out whites)
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Ultra-crisp soft shadows
@@ -142,7 +142,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
     // ── 3. ULTRA-REALISTIC LUNAR POLAR LIGHTING ─────────────────────────────────
     // Low-elevation Polar Sun (Elevation ~4° above horizon, replicating South Pole)
-    const sunLight = new THREE.DirectionalLight(0xffffff, 3.8); // Pure unshielded sunlight
+    const sunLight = new THREE.DirectionalLight(0xfff8ee, 2.9); // Natural solar spectrum
     sunLight.position.set(120, 24, 90);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 4096; // 4K shadow map
@@ -162,8 +162,8 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     earthLight.position.set(-140, 80, -180);
     scene.add(earthLight);
 
-    // Secondary Lunar Regolith Inter-reflection (Subtle warm grey ground bounce)
-    const groundBounce = new THREE.HemisphereLight(0x1a2638, 0x0a0f16, 0.35);
+    // Secondary Lunar Regolith Inter-reflection (Soft velvety ambient fill)
+    const groundBounce = new THREE.HemisphereLight(0x222a36, 0x11161d, 0.42);
     scene.add(groundBounce);
 
     // ── 4. DEEP SPACE STARFIELD & GALACTIC BAND ─────────────────────────────────
@@ -256,12 +256,6 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     scene.add(earthGroup);
 
     // ── 6. PHOTOREALISTIC LUNAR TERRAIN & CRATERS ───────────────────────────────
-    const terrainSize = 180;
-    const segments = 160;
-    const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, segments, segments);
-    terrainGeo.rotateX(-Math.PI / 2);
-
-    const posAttr = terrainGeo.attributes.position;
     // Real Lunar South Pole Morphometry: Deep craters with raised rim lips & central peaks
     const majorCraters = [
       { x: -38, z: -32, radius: 26, depth: 7.5, centralPeak: 1.8 },
@@ -273,18 +267,14 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       { x: -12, z: 14, radius: 7, depth: 1.4, centralPeak: 0 },
     ];
 
-    for (let i = 0; i < posAttr.count; i++) {
-      const vx = posAttr.getX(i);
-      const vz = posAttr.getZ(i);
-
-      // Multi-scale undulating regolith highland terrain
+    // Analytical terrain elevation field: used for terrain geometry, physics ground contact, and surface placement
+    const getTerrainHeight = (vx: number, vz: number): number => {
       let y =
         Math.sin(vx * 0.035) * 2.2 +
         Math.cos(vz * 0.028) * 2.6 +
         Math.sin((vx + vz) * 0.065) * 0.8 +
         Math.cos((vx - vz) * 0.09) * 0.4;
 
-      // Crater carving mathematics (parabolic depression + overturned ejecta rim crest)
       for (const c of majorCraters) {
         const dist = Math.hypot(vx - c.x, vz - c.z);
         if (dist < c.radius * 1.8) {
@@ -306,18 +296,29 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           }
         }
       }
+      return y;
+    };
 
-      posAttr.setY(i, y);
+    const terrainSize = 180;
+    const segments = 160;
+    const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, segments, segments);
+    terrainGeo.rotateX(-Math.PI / 2);
+
+    const posAttr = terrainGeo.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+      const vx = posAttr.getX(i);
+      const vz = posAttr.getZ(i);
+      posAttr.setY(i, getTerrainHeight(vx, vz));
     }
     terrainGeo.computeVertexNormals();
 
     const terrainMat = new THREE.MeshStandardMaterial({
       map: regolithTex.albedo,
       normalMap: regolithTex.normal,
-      normalScale: new THREE.Vector2(1.8, 1.8),
+      normalScale: new THREE.Vector2(0.65, 0.65), // Soft, realistic lunar micro-relief without harsh grain
       roughnessMap: regolithTex.roughness,
-      roughness: 0.96,
-      metalness: 0.04,
+      roughness: 0.98,
+      metalness: 0.02,
       flatShading: false,
     });
     const terrain = new THREE.Mesh(terrainGeo, terrainMat);
@@ -355,6 +356,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     const mountainMat = new THREE.MeshStandardMaterial({
       map: regolithTex.albedo,
       normalMap: regolithTex.normal,
+      normalScale: new THREE.Vector2(0.5, 0.5),
       roughness: 0.98,
       metalness: 0.02,
       side: THREE.BackSide,
@@ -379,10 +381,11 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     boulderGeo.computeVertexNormals();
 
     const boulderMat = new THREE.MeshStandardMaterial({
-      color: 0x8a929e,
-      roughness: 0.92,
-      metalness: 0.08,
+      color: 0x7a828e,
+      roughness: 0.95,
+      metalness: 0.04,
       normalMap: regolithTex.normal,
+      normalScale: new THREE.Vector2(0.6, 0.6),
     });
 
     for (let i = 0; i < 65; i++) {
@@ -392,7 +395,9 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
       const scale = 0.35 + Math.random() * 1.6;
       const bMesh = new THREE.Mesh(boulderGeo, boulderMat);
-      bMesh.position.set(bx, 0.35 * scale, bz);
+      // Strict physics contact: boulder sits on the surface of the moon
+      const bGroundY = getTerrainHeight(bx, bz);
+      bMesh.position.set(bx, bGroundY + 0.28 * scale, bz);
       bMesh.scale.set(scale, scale * (0.6 + Math.random() * 0.5), scale);
       bMesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
       bMesh.castShadow = true;
@@ -749,7 +754,8 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     // ── 9. NAVIGATIONAL BEACONS & A* TRAVERSE PATH ──────────────────────────────
     // Base Camp Waypoint Beacon (Artemis Base - Cyan Laser)
     const baseGroup = new THREE.Group();
-    baseGroup.position.set(0, 0.1, 0);
+    const baseY = getTerrainHeight(0, 0);
+    baseGroup.position.set(0, baseY + 0.04, 0);
     const baseRing = new THREE.Mesh(
       new THREE.RingGeometry(1.6, 2.0, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
@@ -765,7 +771,8 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
     // Target Candidate Site Beacon (ISRU Target - Gold Laser)
     const targetGroup = new THREE.Group();
-    targetGroup.position.set(24, 0.1, 32);
+    const targetY = getTerrainHeight(24, 32);
+    targetGroup.position.set(24, targetY + 0.04, 32);
     const targetRing = new THREE.Mesh(
       new THREE.RingGeometry(2.2, 2.7, 32).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide })
@@ -781,7 +788,8 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
     // Hazard Obstacle Marker (Red Hazard Beacon & Boulder)
     const obstacleGroup = new THREE.Group();
-    obstacleGroup.position.set(12, 0.2, 16);
+    const obsY = getTerrainHeight(12, 16);
+    obstacleGroup.position.set(12, obsY + 0.04, 16);
     obstacleMeshRef.current = obstacleGroup;
     const obsRing = new THREE.Mesh(
       new THREE.RingGeometry(2.8, 3.2, 32).rotateX(-Math.PI / 2),
@@ -799,14 +807,17 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     obstacleGroup.visible = obstacleDetected;
     scene.add(obstacleGroup);
 
-    // A* Path Waypoint Line
-    const pathPoints = [
-      new THREE.Vector3(0, 0.25, 0),
-      new THREE.Vector3(6, 0.25, 8),
-      new THREE.Vector3(12, 0.25, 16),
-      new THREE.Vector3(18, 0.25, 24),
-      new THREE.Vector3(24, 0.25, 32),
+    // A* Path Waypoint Line (Conforms strictly to lunar surface profile)
+    const pathWaypoints = [
+      [0, 0],
+      [6, 8],
+      [12, 16],
+      [18, 24],
+      [24, 32]
     ];
+    const pathPoints = pathWaypoints.map(([px, pz]) => 
+      new THREE.Vector3(px, getTerrainHeight(px, pz) + 0.12, pz)
+    );
     const pathGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
     const pathMat = new THREE.LineDashedMaterial({
       color: 0x60b8ff,
@@ -838,14 +849,44 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
         lidarPuckRef.current.rotation.y += delta * 15;
       }
 
-      // Update Rover Telemetry Position
+      // Update Rover Telemetry Position with Strict Surface Physics
       const curTelem = telemetryRef.current;
       if (roverGroupRef.current) {
         const targetX = curTelem.gridX * 0.15;
         const targetZ = curTelem.gridY * 0.15;
-        roverGroupRef.current.position.x = targetX;
-        roverGroupRef.current.position.z = targetZ;
-        roverGroupRef.current.rotation.y = (curTelem.heading * Math.PI) / 180;
+        const headingRad = (curTelem.heading * Math.PI) / 180;
+
+        // Strict Surface Elevation Contact Physics:
+        // Wheel radius is 0.44m, axle wy = 0.42m => contact point is y - 0.02
+        // Anchoring origin at groundY + 0.015 sets tires directly on regolith with ~5mm realistic sinkage
+        const groundSurfaceY = getTerrainHeight(targetX, targetZ) + 0.015;
+
+        // Multi-point terrain slope sampling for realistic Newtonian vehicle attitude
+        const frontSampleDist = 1.35;
+        const sideSampleDist = 1.45;
+        const sinH = Math.sin(headingRad);
+        const cosH = Math.cos(headingRad);
+
+        const hFront = getTerrainHeight(targetX + sinH * frontSampleDist, targetZ + cosH * frontSampleDist);
+        const hRear  = getTerrainHeight(targetX - sinH * frontSampleDist, targetZ - cosH * frontSampleDist);
+        const hRight = getTerrainHeight(targetX + cosH * sideSampleDist, targetZ - sinH * sideSampleDist);
+        const hLeft  = getTerrainHeight(targetX - cosH * sideSampleDist, targetZ + sinH * sideSampleDist);
+
+        // Strict Newtonian slope pitch (nose up/down) & roll (side camber)
+        const targetPitch = Math.atan2(hFront - hRear, frontSampleDist * 2);
+        const targetRoll  = Math.atan2(hRight - hLeft, sideSampleDist * 2);
+
+        // Lunar gravity suspension settling (g = 1.62 m/s²)
+        const pos = roverGroupRef.current.position;
+        pos.x = targetX;
+        pos.z = targetZ;
+        pos.y += (groundSurfaceY - pos.y) * Math.min(1.0, delta * 14);
+
+        // Physical attitude rotation with smooth damping
+        roverGroupRef.current.rotation.order = 'YXZ';
+        roverGroupRef.current.rotation.y = headingRad;
+        roverGroupRef.current.rotation.x += (targetPitch - roverGroupRef.current.rotation.x) * Math.min(1.0, delta * 9);
+        roverGroupRef.current.rotation.z += (-targetRoll - roverGroupRef.current.rotation.z) * Math.min(1.0, delta * 9);
 
         // Rocker-bogie wheel roll when navigating
         if (curTelem.operation === 'NAVIGATING' || curTelem.operation === 'RETURNING') {
@@ -854,8 +895,8 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           });
           if (chassisRef.current) {
             // Subtle dynamic suspension rocking
-            chassisRef.current.position.y = Math.sin(time * 9) * 0.025;
-            chassisRef.current.rotation.z = Math.sin(time * 4) * 0.015;
+            chassisRef.current.position.y = Math.sin(time * 9) * 0.02;
+            chassisRef.current.rotation.z = Math.sin(time * 4) * 0.012;
           }
         } else {
           if (chassisRef.current) {
@@ -873,18 +914,19 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
             // Plunge drill down into regolith according to depth
             drillCarriageRef.current.position.y = 0.6 - (curTelem.drillDepthM / 2.0) * 0.9;
           }
-          // Regolith dust spray
+          // Regolith dust spray (ground-anchored)
           if (particlesRef.current) {
             const pMat = particlesRef.current.material as THREE.PointsMaterial;
             pMat.opacity = 0.85;
             const pAttr = particlesRef.current.geometry.attributes.position;
             const rX = roverGroupRef.current.position.x + 0.65;
             const rZ = roverGroupRef.current.position.z + 0.95;
+            const rGround = getTerrainHeight(rX, rZ);
             for (let i = 0; i < partCount; i++) {
               const px = (Math.random() - 0.5) * 0.9;
-              const py = Math.random() * 0.85;
+              const py = Math.random() * 0.75;
               const pz = (Math.random() - 0.5) * 0.9;
-              pAttr.setXYZ(i, rX + px, py, rZ + pz);
+              pAttr.setXYZ(i, rX + px, rGround + py, rZ + pz);
             }
             pAttr.needsUpdate = true;
           }
@@ -902,7 +944,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
             if (scanScale > 18) scanScale = 0.1;
             scanRingRef.current.position.set(
               roverGroupRef.current.position.x,
-              0.14,
+              getTerrainHeight(roverGroupRef.current.position.x, roverGroupRef.current.position.z) + 0.08,
               roverGroupRef.current.position.z
             );
             scanRingRef.current.scale.set(scanScale, scanScale, 1);
@@ -927,8 +969,9 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           const chaseHeight = 5.2;
           const targetCamX = roverPos.x - Math.sin(headingRad) * chaseDistance;
           const targetCamZ = roverPos.z - Math.cos(headingRad) * chaseDistance;
+          const targetCamY = roverPos.y + chaseHeight;
           cameraRef.current.position.lerp(
-            new THREE.Vector3(targetCamX, roverPos.y + chaseHeight, targetCamZ),
+            new THREE.Vector3(targetCamX, targetCamY, targetCamZ),
             0.08
           );
           cameraRef.current.lookAt(roverPos.x, roverPos.y + 1.2, roverPos.z);
@@ -947,11 +990,14 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           cameraRef.current.lookAt(lookAtTarget);
         } else if (activeCamMode === 'TOP_DOWN') {
           // High-resolution orthogonal tactical view
-          cameraRef.current.position.set(roverPos.x, 50, roverPos.z + 0.1);
-          cameraRef.current.lookAt(roverPos.x, 0, roverPos.z);
+          cameraRef.current.position.set(roverPos.x, roverPos.y + 45, roverPos.z + 0.1);
+          cameraRef.current.lookAt(roverPos.x, roverPos.y, roverPos.z);
         } else if (activeCamMode === 'ORBIT') {
-          // Handled by OrbitControls
-          if (controlsRef.current) controlsRef.current.update();
+          // Handled by OrbitControls — track rover position on surface
+          if (controlsRef.current) {
+            controlsRef.current.target.set(roverPos.x, roverPos.y + 1.0, roverPos.z);
+            controlsRef.current.update();
+          }
         }
       }
 

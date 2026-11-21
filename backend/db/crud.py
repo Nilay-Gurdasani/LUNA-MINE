@@ -47,19 +47,7 @@ async def list_scenarios() -> list[dict]:
     async with SessionLocal() as session:
         result = await session.execute(select(MissionRecord))
         records = result.scalars().all()
-        return [
-            {
-                "mission_id":    r.mission_id,
-                "scenario_name": r.scenario_name,
-                "site_id":       r.site_id,
-                "rover_id":      r.rover_id,
-                "strategy":      r.strategy,
-                "status":        r.status,
-                "score":         r.score,
-                "created_at":    r.created_at.isoformat(),
-            }
-            for r in records
-        ]
+        return [r.full_report for r in records]
 
 
 async def delete_scenario(mission_id: str) -> bool:

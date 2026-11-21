@@ -46,9 +46,9 @@ function fractalNoise(x: number, y: number, octaves = 5): number {
 
 /**
  * Generates photorealistic Lunar Regolith PBR Textures:
- * 1. Albedo Map: True lunar soil coloration, anorthosite ejecta rays, titanium basalt tones.
- * 2. Normal Map: Sobel-filtered tangent-space micro-topography (pebbles, pitted craters, breccia).
- * 3. Roughness Map: Hapke retroreflective lunar dust response with crystalline impact spherules.
+ * 1. Albedo Map: Soft, velvety lunar regolith tones (calibrated Apollo/LRO albedo ~0.08–0.14).
+ * 2. Normal Map: Smooth Sobel-filtered micro-relief with gentle crater rims and soft granular texture.
+ * 3. Roughness Map: Hapke retroreflective powdery lunar dust response.
  */
 export function createLunarRegolithTextures(size = 1024): {
   albedo: THREE.CanvasTexture;
@@ -58,32 +58,31 @@ export function createLunarRegolithTextures(size = 1024): {
   const heightData = new Float32Array(size * size);
 
   // --- Step 1: Compute composite multi-scale heightfield ---
-  // Seed distinct craters
+  // Seed natural micro-craters with smooth rims
   const microCraters: { cx: number; cy: number; r: number; d: number }[] = [];
-  const craterCount = 45;
+  const craterCount = 36;
   for (let c = 0; c < craterCount; c++) {
     microCraters.push({
       cx: pseudoNoise(c * 3.1, c * 7.9) * size,
       cy: pseudoNoise(c * 5.7, c * 2.3) * size,
-      r: 6 + pseudoNoise(c * 11.1, c * 13.3) * 38,
-      d: 0.15 + pseudoNoise(c * 17.7, c * 19.1) * 0.35,
+      r: 8 + pseudoNoise(c * 11.1, c * 13.3) * 32,
+      d: 0.12 + pseudoNoise(c * 17.7, c * 19.1) * 0.24,
     });
   }
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const idx = y * size + x;
-      // Multi-octave regolith ground noise
-      let h = fractalNoise(x * 0.035, y * 0.035, 5) * 0.45;
-      h += fractalNoise(x * 0.12, y * 0.12, 3) * 0.15;
+      // Multi-octave smooth regolith dunes & rolling undulations
+      let h = fractalNoise(x * 0.02, y * 0.02, 4) * 0.42;
+      h += fractalNoise(x * 0.08, y * 0.08, 3) * 0.14;
 
-      // Micro pebbles and gritty soil grains
-      const grain = pseudoNoise(x * 0.8, y * 0.8);
-      if (grain > 0.88) {
-        h += (grain - 0.88) * 1.5; // Raised rock fragments
-      }
+      // Soft regolith micro-texture (limited grain, natural powdery feel - not zero, but smooth)
+      const fineGrain = (smoothNoise(x * 0.22, y * 0.22) - 0.5) * 0.065
+                      + (smoothNoise(x * 0.55, y * 0.55) - 0.5) * 0.028;
+      h += fineGrain;
 
-      // Micro-crater depressions with raised ejecta rims
+      // Micro-crater depressions with smoothly rounded ejecta rims
       for (let i = 0; i < craterCount; i++) {
         const mc = microCraters[i];
         let dx = Math.abs(x - mc.cx);
@@ -92,15 +91,17 @@ export function createLunarRegolithTextures(size = 1024): {
         if (dy > size * 0.5) dy = size - dy;
         const dist = Math.hypot(dx, dy);
 
-        if (dist < mc.r * 1.5) {
+        if (dist < mc.r * 1.6) {
           const u = dist / mc.r;
           if (u < 1.0) {
-            // Inner parabolic crater bowl
-            h -= mc.d * (1 - u * u);
+            // Parabolic bowl with smooth flat floor transition
+            const bowl = Math.cos(u * Math.PI * 0.5);
+            h -= mc.d * Math.pow(bowl, 1.8);
           } else {
-            // Overturned rim and ejecta crest
-            const rim = Math.sin((u - 1.0) / 0.5 * Math.PI);
-            h += mc.d * 0.35 * Math.max(0, rim);
+            // Soft rounded overturn ejecta crest
+            const rimNorm = (u - 1.0) / 0.6;
+            const rim = Math.sin(rimNorm * Math.PI);
+            h += mc.d * 0.22 * Math.max(0, rim);
           }
         }
       }
@@ -109,14 +110,14 @@ export function createLunarRegolithTextures(size = 1024): {
     }
   }
 
-  // --- Step 2: Render Albedo Map ---
+  // --- Step 2: Render Albedo Map (Soft, authentic lunar graphite-cement palette) ---
   const albedoCanvas = document.createElement('canvas');
   albedoCanvas.width = size;
   albedoCanvas.height = size;
   const aCtx = albedoCanvas.getContext('2d')!;
   const aImg = aCtx.createImageData(size, size);
 
-  // --- Step 3: Render Normal Map (Sobel filter) ---
+  // --- Step 3: Render Normal Map (Gentle Sobel filter) ---
   const normalCanvas = document.createElement('canvas');
   normalCanvas.width = size;
   normalCanvas.height = size;
@@ -135,15 +136,16 @@ export function createLunarRegolithTextures(size = 1024): {
       const idx = y * size + x;
       const h = heightData[idx];
 
-      // --- Albedo Calculation ---
-      // Real lunar regolith reflectance: Albedo ranges from ~0.07 (mare basalt) to ~0.24 (highland anorthosite)
-      const baseTone = 110 + h * 65;
-      // High-frequency dust variation
-      const dustNoise = fractalNoise(x * 0.08, y * 0.08, 3);
-      // Subtle titanium-rich blue/iron-rich warm tinting
-      const rVal = Math.min(240, Math.max(40, baseTone + dustNoise * 20));
-      const gVal = Math.min(240, Math.max(40, baseTone + dustNoise * 18 - 2));
-      const bVal = Math.min(245, Math.max(45, baseTone + dustNoise * 22 + 4));
+      // --- Albedo: Soft natural lunar tones ---
+      // Authentic lunar reflectance: soft warm-neutral charcoal gray, subtle anorthosite highlight on rims
+      const baseTone = 92 + h * 28;
+      // Gentle dust variation (soft, low-contrast)
+      const dustNoise = (fractalNoise(x * 0.05, y * 0.05, 3) - 0.5) * 12;
+
+      // Soft, cohesive lunar spectrum: no harsh color fringing, subtle neutral mineral warmth
+      const rVal = Math.min(160, Math.max(50, Math.round(baseTone + dustNoise + 0.8)));
+      const gVal = Math.min(160, Math.max(50, Math.round(baseTone + dustNoise)));
+      const bVal = Math.min(165, Math.max(52, Math.round(baseTone + dustNoise + 1.6)));
 
       const pIdx = idx * 4;
       aImg.data[pIdx] = rVal;
@@ -151,14 +153,15 @@ export function createLunarRegolithTextures(size = 1024): {
       aImg.data[pIdx + 2] = bVal;
       aImg.data[pIdx + 3] = 255;
 
-      // --- Normal Calculation (Sobel filter over heightfield) ---
+      // --- Normal Calculation (Gentle Sobel filter for soft micro-relief) ---
       const xL = (x - 1 + size) % size;
       const xR = (x + 1) % size;
       const yU = (y - 1 + size) % size;
       const yD = (y + 1) % size;
 
-      const dhdx = (heightData[y * size + xR] - heightData[y * size + xL]) * 2.8;
-      const dhdy = (heightData[yD * size + x] - heightData[yU * size + x]) * 2.8;
+      // Soft normal multiplier (1.35) avoids noisy sandpaper grain while preserving crater geometry
+      const dhdx = (heightData[y * size + xR] - heightData[y * size + xL]) * 1.35;
+      const dhdy = (heightData[yD * size + x] - heightData[yU * size + x]) * 1.35;
 
       let nx = -dhdx;
       let ny = -dhdy;
@@ -173,11 +176,9 @@ export function createLunarRegolithTextures(size = 1024): {
       nImg.data[pIdx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
       nImg.data[pIdx + 3] = 255;
 
-      // --- Roughness Calculation ---
-      // Lunar regolith is overwhelmingly diffuse retroreflective dust (roughness 0.92-0.98),
-      // with occasional glassy impact melt beads showing specular sheen (roughness ~0.45)
-      const isGlassy = h > 0.42 && pseudoNoise(x * 1.5, y * 1.5) > 0.85;
-      const roughVal = isGlassy ? 115 : Math.floor(235 + dustNoise * 18);
+      // --- Roughness: High diffuse retroreflective powdery dust (Hapke response) ---
+      // Very soft, velvety consistency across regolith
+      const roughVal = Math.min(255, Math.max(225, Math.floor(242 + dustNoise * 0.6)));
       rImg.data[pIdx] = roughVal;
       rImg.data[pIdx + 1] = roughVal;
       rImg.data[pIdx + 2] = roughVal;
@@ -189,15 +190,15 @@ export function createLunarRegolithTextures(size = 1024): {
   nCtx.putImageData(nImg, 0, 0);
   rCtx.putImageData(rImg, 0, 0);
 
-  // Paint subtle high-albedo ejecta ray streaks
-  aCtx.strokeStyle = 'rgba(235, 242, 255, 0.18)';
-  aCtx.lineWidth = 1.8;
-  for (let r = 0; r < 14; r++) {
+  // Soft, diffuse crater ejecta ray streaks (subtle, feathered blending)
+  aCtx.strokeStyle = 'rgba(195, 205, 220, 0.08)';
+  aCtx.lineWidth = 2.4;
+  for (let r = 0; r < 8; r++) {
     aCtx.beginPath();
-    const cx = size * (0.2 + pseudoNoise(r, 1) * 0.6);
-    const cy = size * (0.2 + pseudoNoise(r, 2) * 0.6);
+    const cx = size * (0.25 + pseudoNoise(r, 1) * 0.5);
+    const cy = size * (0.25 + pseudoNoise(r, 2) * 0.5);
     const angle = pseudoNoise(r, 3) * Math.PI * 2;
-    const len = 80 + pseudoNoise(r, 4) * 220;
+    const len = 90 + pseudoNoise(r, 4) * 160;
     aCtx.moveTo(cx, cy);
     aCtx.lineTo(cx + Math.cos(angle) * len, cy + Math.sin(angle) * len);
     aCtx.stroke();
@@ -206,19 +207,19 @@ export function createLunarRegolithTextures(size = 1024): {
   const albedo = new THREE.CanvasTexture(albedoCanvas);
   albedo.wrapS = THREE.RepeatWrapping;
   albedo.wrapT = THREE.RepeatWrapping;
-  albedo.repeat.set(6, 6);
+  albedo.repeat.set(5, 5);
   albedo.anisotropy = 8;
 
   const normal = new THREE.CanvasTexture(normalCanvas);
   normal.wrapS = THREE.RepeatWrapping;
   normal.wrapT = THREE.RepeatWrapping;
-  normal.repeat.set(6, 6);
+  normal.repeat.set(5, 5);
   normal.anisotropy = 8;
 
   const roughness = new THREE.CanvasTexture(roughCanvas);
   roughness.wrapS = THREE.RepeatWrapping;
   roughness.wrapT = THREE.RepeatWrapping;
-  roughness.repeat.set(6, 6);
+  roughness.repeat.set(5, 5);
 
   return { albedo, normal, roughness };
 }
