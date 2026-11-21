@@ -27,18 +27,61 @@ interface LunarDigitalTwinProps {
   selectedSite: CandidateSite | null;
   obstacleDetected: boolean;
   onSelectCoordinate?: (lat: number, lon: number, elevation: number) => void;
+  onTelemetryUpdate?: (updater: (prev: RoverTelemetry) => RoverTelemetry) => void;
 }
 
 export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
   telemetry,
   selectedSite,
   obstacleDetected,
+  onTelemetryUpdate,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const [cameraMode, setCameraMode] = useState<'CHASE' | 'MASTCAM' | 'TOP_DOWN' | 'ORBIT'>('CHASE');
   const [showWireframe, setShowWireframe] = useState(false);
   const [headlightsOn, setHeadlightsOn] = useState(true);
   const [hudVisible, setHudVisible] = useState(true);
+
+  // Real-time WASD driving state & keys
+  const keysRef = useRef<{
+    w: boolean;
+    a: boolean;
+    s: boolean;
+    d: boolean;
+    shift: boolean;
+    space: boolean;
+  }>({
+    w: false,
+    a: false,
+    s: false,
+    d: false,
+    shift: false,
+    space: false,
+  });
+
+  const [activeKeys, setActiveKeys] = useState({
+    w: false,
+    a: false,
+    s: false,
+    d: false,
+    shift: false,
+    space: false,
+  });
+
+  const [driveStats, setDriveStats] = useState<{
+    speed: number;
+    heading: number;
+    gear: 'NORMAL' | 'TURBO';
+    elevation: number;
+  }>({
+    speed: 0,
+    heading: Math.round(telemetry.heading),
+    gear: 'NORMAL',
+    elevation: telemetry.elevation,
+  });
+
+  const onTelemetryUpdateRef = useRef(onTelemetryUpdate);
+  onTelemetryUpdateRef.current = onTelemetryUpdate;
 
   // References to 3D components for per-frame animation and live telemetry updates
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -87,6 +130,79 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       spotlightRRef.current.intensity = headlightsOn ? 3.5 : 0;
     }
   }, [headlightsOn]);
+
+  // Global WASD / Arrow Key Drive Listeners
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+      let changed = false;
+
+      if (key === 'w' || e.key === 'ArrowUp') {
+        if (!keysRef.current.w) changed = true;
+        keysRef.current.w = true;
+      } else if (key === 's' || e.key === 'ArrowDown') {
+        if (!keysRef.current.s) changed = true;
+        keysRef.current.s = true;
+      } else if (key === 'a' || e.key === 'ArrowLeft') {
+        if (!keysRef.current.a) changed = true;
+        keysRef.current.a = true;
+      } else if (key === 'd' || e.key === 'ArrowRight') {
+        if (!keysRef.current.d) changed = true;
+        keysRef.current.d = true;
+      } else if (e.key === 'Shift') {
+        if (!keysRef.current.shift) changed = true;
+        keysRef.current.shift = true;
+      } else if (e.key === ' ' || e.code === 'Space') {
+        if (!keysRef.current.space) changed = true;
+        keysRef.current.space = true;
+      }
+
+      if (changed) {
+        setActiveKeys({ ...keysRef.current });
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      let changed = false;
+
+      if (key === 'w' || e.key === 'ArrowUp') {
+        if (keysRef.current.w) changed = true;
+        keysRef.current.w = false;
+      } else if (key === 's' || e.key === 'ArrowDown') {
+        if (keysRef.current.s) changed = true;
+        keysRef.current.s = false;
+      } else if (key === 'a' || e.key === 'ArrowLeft') {
+        if (keysRef.current.a) changed = true;
+        keysRef.current.a = false;
+      } else if (key === 'd' || e.key === 'ArrowRight') {
+        if (keysRef.current.d) changed = true;
+        keysRef.current.d = false;
+      } else if (e.key === 'Shift') {
+        if (keysRef.current.shift) changed = true;
+        keysRef.current.shift = false;
+      } else if (e.key === ' ' || e.code === 'Space') {
+        if (keysRef.current.space) changed = true;
+        keysRef.current.space = false;
+      }
+
+      if (changed) {
+        setActiveKeys({ ...keysRef.current });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -256,51 +372,145 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     scene.add(earthGroup);
 
     // ── 6. PHOTOREALISTIC LUNAR TERRAIN & CRATERS ───────────────────────────────
-    // Real Lunar South Pole Morphometry: Deep craters with raised rim lips & central peaks
+    // Replicating high-resolution LRO orbital reference (dense overlapping craters across all scales)
+    const craterHash = (i: number, j: number, seed: number): number => {
+      const n = Math.sin(i * 127.1 + j * 311.7 + seed * 43.17) * 43758.5453;
+      return n - Math.floor(n);
+    };
+
+    // Major impact basins & prominent landmark craters (Lunar South Pole morphometry)
     const majorCraters = [
-      { x: -38, z: -32, radius: 26, depth: 7.5, centralPeak: 1.8 },
-      { x: 42, z: -48, radius: 34, depth: 9.2, centralPeak: 2.2 },
-      { x: -28, z: 35, radius: 20, depth: 5.4, centralPeak: 0 },
-      { x: 38, z: 28, radius: 24, depth: 6.2, centralPeak: 1.2 },
-      { x: 0, z: -14, radius: 10, depth: 2.2, centralPeak: 0 }, // Shallow crater near base
-      { x: 18, z: 12, radius: 8, depth: 1.6, centralPeak: 0 },
-      { x: -12, z: 14, radius: 7, depth: 1.4, centralPeak: 0 },
+      // Primary impact basins with raised overturned rims & central rebound peaks
+      { x: -44, z: -40, radius: 28, depth: 8.5, centralPeak: 2.0 },
+      { x: 48, z: -48, radius: 34, depth: 9.6, centralPeak: 2.4 },
+      { x: -32, z: 42, radius: 24, depth: 6.8, centralPeak: 1.4 },
+      { x: 42, z: 34, radius: 26, depth: 7.2, centralPeak: 1.6 },
+      { x: -58, z: -4, radius: 26, depth: 6.8, centralPeak: 0 },
+      { x: 56, z: -10, radius: 24, depth: 6.5, centralPeak: 0 },
+      { x: 8, z: -62, radius: 25, depth: 6.6, centralPeak: 1.2 },
+      { x: -22, z: -54, radius: 20, depth: 5.4, centralPeak: 0 },
+
+      // Prominent secondary impact craters overlapping basins
+      { x: 26, z: -22, radius: 14, depth: 4.2, centralPeak: 0 },
+      { x: -26, z: 14, radius: 13, depth: 3.8, centralPeak: 0 },
+      { x: 22, z: 18, radius: 12, depth: 3.4, centralPeak: 0 },
+      { x: -14, z: -24, radius: 11, depth: 3.2, centralPeak: 0 },
+      { x: 12, z: 46, radius: 15, depth: 4.5, centralPeak: 0 },
+      { x: -46, z: 28, radius: 16, depth: 4.8, centralPeak: 0 },
+      { x: 38, z: -14, radius: 12, depth: 3.6, centralPeak: 0 },
+      { x: -18, z: 48, radius: 14, depth: 4.0, centralPeak: 0 },
+
+      // Smaller landmark craters near operational corridors
+      { x: 0, z: -18, radius: 7.5, depth: 2.0, centralPeak: 0 },
+      { x: 16, z: -6, radius: 6.5, depth: 1.8, centralPeak: 0 },
+      { x: -10, z: -8, radius: 5.5, depth: 1.5, centralPeak: 0 },
+      { x: 8, z: 22, radius: 7.0, depth: 1.9, centralPeak: 0 },
+      { x: -8, z: 28, radius: 6.0, depth: 1.6, centralPeak: 0 },
+      { x: 30, z: 8, radius: 8.0, depth: 2.2, centralPeak: 0 },
+      { x: -36, z: -16, radius: 9.0, depth: 2.6, centralPeak: 0 },
     ];
 
     // Analytical terrain elevation field: used for terrain geometry, physics ground contact, and surface placement
     const getTerrainHeight = (vx: number, vz: number): number => {
+      // 1. Regional highland topography & macro swells
       let y =
-        Math.sin(vx * 0.035) * 2.2 +
-        Math.cos(vz * 0.028) * 2.6 +
-        Math.sin((vx + vz) * 0.065) * 0.8 +
-        Math.cos((vx - vz) * 0.09) * 0.4;
+        Math.sin(vx * 0.032) * 2.8 +
+        Math.cos(vz * 0.026) * 3.2 +
+        Math.sin((vx + vz) * 0.055) * 1.1 +
+        Math.cos((vx - vz) * 0.075) * 0.6;
 
-      for (const c of majorCraters) {
+      // 2. High-frequency lunar regolith ridges & breccia micro-roughness (matches reference image grain)
+      y +=
+        Math.sin(vx * 0.22 + vz * 0.16) * 0.42 +
+        Math.cos(vx * 0.38 - vz * 0.32) * 0.28 +
+        Math.sin(vx * 0.85 + vz * 0.72) * 0.14 +
+        Math.cos(vx * 1.7 - vz * 1.4) * 0.06;
+
+      // 3. Landmark impact craters & basins with sharp raised rims & bowl floors
+      for (let i = 0; i < majorCraters.length; i++) {
+        const c = majorCraters[i];
         const dist = Math.hypot(vx - c.x, vz - c.z);
-        if (dist < c.radius * 1.8) {
+        if (dist < c.radius * 1.7) {
           const norm = dist / c.radius;
           if (norm < 1.0) {
-            // Inner depression bowl
+            // Parabolic bowl with steep wall
             const bowl = Math.cos(norm * Math.PI * 0.5);
-            y -= c.depth * Math.pow(bowl, 1.9);
-            // Central uplift peak
-            if (c.centralPeak > 0 && norm < 0.28) {
-              const peakNorm = 1.0 - norm / 0.28;
+            y -= c.depth * Math.pow(bowl, 1.8);
+            // Rebound central peak
+            if (c.centralPeak > 0 && norm < 0.25) {
+              const peakNorm = 1.0 - norm / 0.25;
               y += c.centralPeak * Math.cos((1 - peakNorm) * Math.PI * 0.5);
             }
           } else {
-            // Overturned ejecta rim
-            const rimNorm = (norm - 1.0) / 0.8;
+            // Raised overturned rim lip
+            const rimNorm = (norm - 1.0) / 0.7;
             const rimHeight = c.depth * 0.28 * Math.sin(rimNorm * Math.PI);
             y += Math.max(0, rimHeight);
           }
         }
       }
+
+      // 4. Procedural Cellular Crater Field: Layer 1 (Medium impact craters, 12m grid)
+      const cell1 = 12.0;
+      const gx1 = Math.floor(vx / cell1);
+      const gz1 = Math.floor(vz / cell1);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const cx_cell = gx1 + ox;
+          const cz_cell = gz1 + oz;
+          const pcx = (cx_cell + 0.15 + craterHash(cx_cell, cz_cell, 1.1) * 0.7) * cell1;
+          const pcz = (cz_cell + 0.15 + craterHash(cx_cell, cz_cell, 2.3) * 0.7) * cell1;
+          const pradius = 2.4 + craterHash(cx_cell, cz_cell, 3.7) * 4.2; // 2.4m to 6.6m
+          const pdepth = 0.6 + craterHash(cx_cell, cz_cell, 4.9) * 1.4;  // 0.6m to 2.0m
+
+          const dist = Math.hypot(vx - pcx, vz - pcz);
+          if (dist < pradius * 1.65) {
+            const norm = dist / pradius;
+            if (norm < 1.0) {
+              const bowl = Math.cos(norm * Math.PI * 0.5);
+              y -= pdepth * Math.pow(bowl, 1.7);
+            } else {
+              const rimNorm = (norm - 1.0) / 0.65;
+              const rimLip = pdepth * 0.25 * Math.sin(rimNorm * Math.PI);
+              y += Math.max(0, rimLip);
+            }
+          }
+        }
+      }
+
+      // 5. Procedural Cellular Crater Field: Layer 2 (Dense pockmark craters, 6m grid)
+      const cell2 = 6.0;
+      const gx2 = Math.floor(vx / cell2);
+      const gz2 = Math.floor(vz / cell2);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const cx_cell = gx2 + ox;
+          const cz_cell = gz2 + oz;
+          const pcx = (cx_cell + 0.2 + craterHash(cx_cell, cz_cell, 5.2) * 0.6) * cell2;
+          const pcz = (cz_cell + 0.2 + craterHash(cx_cell, cz_cell, 6.4) * 0.6) * cell2;
+          const pradius = 1.0 + craterHash(cx_cell, cz_cell, 7.8) * 1.8; // 1.0m to 2.8m
+          const pdepth = 0.25 + craterHash(cx_cell, cz_cell, 8.5) * 0.55; // 0.25m to 0.8m
+
+          const dist = Math.hypot(vx - pcx, vz - pcz);
+          if (dist < pradius * 1.6) {
+            const norm = dist / pradius;
+            if (norm < 1.0) {
+              const bowl = Math.cos(norm * Math.PI * 0.5);
+              y -= pdepth * Math.pow(bowl, 1.6);
+            } else {
+              const rimNorm = (norm - 1.0) / 0.6;
+              const rimLip = pdepth * 0.22 * Math.sin(rimNorm * Math.PI);
+              y += Math.max(0, rimLip);
+            }
+          }
+        }
+      }
+
       return y;
     };
 
     const terrainSize = 180;
-    const segments = 160;
+    const segments = 200;
     const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, segments, segments);
     terrainGeo.rotateX(-Math.PI / 2);
 
@@ -315,10 +525,10 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     const terrainMat = new THREE.MeshStandardMaterial({
       map: regolithTex.albedo,
       normalMap: regolithTex.normal,
-      normalScale: new THREE.Vector2(0.65, 0.65), // Soft, realistic lunar micro-relief without harsh grain
+      normalScale: new THREE.Vector2(2.4, 2.4), // Crisp, high-contrast 3D micro-relief matching LRO reference
       roughnessMap: regolithTex.roughness,
-      roughness: 0.98,
-      metalness: 0.02,
+      roughness: 0.96,
+      metalness: 0.04,
       flatShading: false,
     });
     const terrain = new THREE.Mesh(terrainGeo, terrainMat);
@@ -836,9 +1046,18 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     const clock = new THREE.Clock();
     let scanScale = 0.1;
 
+    // Rover dynamic kinematic state for WASD driving & telemetry synchronization
+    let roverSimX = telemetry.gridX * 0.15;
+    let roverSimZ = telemetry.gridY * 0.15;
+    let roverHeadingRad = (telemetry.heading * Math.PI) / 180;
+    let currentSpeed = 0; // m/s
+    let distanceAccum = telemetry.distanceTravelledM || 0;
+    let lastTelemetryPushTime = 0;
+    let userDriveTimer = 0;
+
     const animate = () => {
       animFrameId = requestAnimationFrame(animate);
-      const delta = clock.getDelta();
+      const delta = Math.min(clock.getDelta(), 0.08); // Clamp delta against browser tab throttling
       const time = clock.getElapsedTime();
 
       // Earth slow realistic orbital spin
@@ -849,28 +1068,135 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
         lidarPuckRef.current.rotation.y += delta * 15;
       }
 
-      // Update Rover Telemetry Position with Strict Surface Physics
+      // Check active WASD keyboard controls
+      const keys = keysRef.current;
+      const isAnyKeyPressed = keys.w || keys.s || keys.a || keys.d || keys.space;
+
+      if (isAnyKeyPressed) {
+        userDriveTimer = 2.0; // Keep manual drive mode dominant for 2s after key release
+      } else if (userDriveTimer > 0) {
+        userDriveTimer -= delta;
+      }
+
+      const isManual = isAnyKeyPressed || userDriveTimer > 0;
+
+      if (isManual) {
+        // --- WASD Drive Physics ---
+        const maxForwardSpeed = keys.shift ? 4.2 : 2.2; // m/s (Turbo vs Normal)
+        const maxReverseSpeed = 1.4; // m/s
+        const accelRate = 3.2; // m/s²
+        const dragRate = 2.4;  // m/s² lunar regolith rolling friction
+        const brakeRate = 8.5; // m/s² mechanical disc braking
+
+        let targetAccel = 0;
+        if (keys.w && !keys.s) {
+          targetAccel = 1;
+        } else if (keys.s && !keys.w) {
+          targetAccel = -1;
+        }
+
+        if (keys.space) {
+          // Sharp brake
+          if (currentSpeed > 0) {
+            currentSpeed = Math.max(0, currentSpeed - brakeRate * delta);
+          } else if (currentSpeed < 0) {
+            currentSpeed = Math.min(0, currentSpeed + brakeRate * delta);
+          }
+        } else if (targetAccel > 0) {
+          if (currentSpeed < maxForwardSpeed) {
+            currentSpeed = Math.min(maxForwardSpeed, currentSpeed + accelRate * delta);
+          }
+        } else if (targetAccel < 0) {
+          if (currentSpeed > -maxReverseSpeed) {
+            currentSpeed = Math.max(-maxReverseSpeed, currentSpeed - accelRate * delta);
+          }
+        } else {
+          // Natural deceleration to stop
+          if (currentSpeed > 0) {
+            currentSpeed = Math.max(0, currentSpeed - dragRate * delta);
+          } else if (currentSpeed < 0) {
+            currentSpeed = Math.min(0, currentSpeed + dragRate * delta);
+          }
+        }
+
+        // Steer heading (Yaw)
+        const steerRate = 1.6; // rad/s
+        let steerInput = 0;
+        if (keys.a && !keys.d) {
+          steerInput = -1; // Left / counter-clockwise
+        } else if (keys.d && !keys.a) {
+          steerInput = 1;  // Right / clockwise
+        }
+
+        roverHeadingRad += steerInput * steerRate * delta;
+
+        // Move position along heading
+        const sinH = Math.sin(roverHeadingRad);
+        const cosH = Math.cos(roverHeadingRad);
+        roverSimX += sinH * currentSpeed * delta;
+        roverSimZ += cosH * currentSpeed * delta;
+
+        // Clamp to physical terrain bounds [-82, 82]
+        roverSimX = Math.max(-82, Math.min(82, roverSimX));
+        roverSimZ = Math.max(-82, Math.min(82, roverSimZ));
+
+        distanceAccum += Math.abs(currentSpeed) * delta;
+
+        // Throttle telemetry push to React state (~12Hz)
+        if (time - lastTelemetryPushTime > 0.08) {
+          lastTelemetryPushTime = time;
+          const degHeading = ((roverHeadingRad * 180 / Math.PI) % 360 + 360) % 360;
+          const groundY = getTerrainHeight(roverSimX, roverSimZ);
+          const speedAbs = Math.abs(currentSpeed);
+          const isMoving = speedAbs > 0.05;
+
+          setDriveStats({
+            speed: parseFloat(speedAbs.toFixed(2)),
+            heading: Math.round(degHeading),
+            gear: keys.shift ? 'TURBO' : 'NORMAL',
+            elevation: Math.round(-2840 + groundY * 8),
+          });
+
+          if (onTelemetryUpdateRef.current) {
+            onTelemetryUpdateRef.current((prev) => ({
+              ...prev,
+              gridX: parseFloat((roverSimX / 0.15).toFixed(2)),
+              gridY: parseFloat((roverSimZ / 0.15).toFixed(2)),
+              heading: Math.round(degHeading),
+              speedMs: parseFloat(speedAbs.toFixed(2)),
+              distanceTravelledM: parseFloat(distanceAccum.toFixed(1)),
+              elevation: Math.round(-2840 + groundY * 8),
+              powerDrawWatts: Math.round(240 + speedAbs * 125 + (keys.shift ? 75 : 0)),
+              operation: isMoving ? 'NAVIGATING' : (prev.operation === 'NAVIGATING' ? 'STANDBY' : prev.operation),
+            }));
+          }
+        }
+      } else {
+        // Sync with incoming autonomous telemetry when not manually driving
+        const curTelem = telemetryRef.current;
+        roverSimX = curTelem.gridX * 0.15;
+        roverSimZ = curTelem.gridY * 0.15;
+        roverHeadingRad = (curTelem.heading * Math.PI) / 180;
+        currentSpeed = curTelem.speedMs || 0;
+      }
+
+      // Update Rover 3D Model with Strict Surface Physics
       const curTelem = telemetryRef.current;
       if (roverGroupRef.current) {
-        const targetX = curTelem.gridX * 0.15;
-        const targetZ = curTelem.gridY * 0.15;
-        const headingRad = (curTelem.heading * Math.PI) / 180;
-
         // Strict Surface Elevation Contact Physics:
-        // Wheel radius is 0.44m, axle wy = 0.42m => contact point is y - 0.02
         // Anchoring origin at groundY + 0.015 sets tires directly on regolith with ~5mm realistic sinkage
-        const groundSurfaceY = getTerrainHeight(targetX, targetZ) + 0.015;
+        const groundSurfaceY = getTerrainHeight(roverSimX, roverSimZ) + 0.015;
 
         // Multi-point terrain slope sampling for realistic Newtonian vehicle attitude
         const frontSampleDist = 1.35;
         const sideSampleDist = 1.45;
-        const sinH = Math.sin(headingRad);
-        const cosH = Math.cos(headingRad);
+        const sinH = Math.sin(roverHeadingRad);
+        const cosH = Math.cos(roverHeadingRad);
 
-        const hFront = getTerrainHeight(targetX + sinH * frontSampleDist, targetZ + cosH * frontSampleDist);
-        const hRear  = getTerrainHeight(targetX - sinH * frontSampleDist, targetZ - cosH * frontSampleDist);
-        const hRight = getTerrainHeight(targetX + cosH * sideSampleDist, targetZ - sinH * sideSampleDist);
-        const hLeft  = getTerrainHeight(targetX - cosH * sideSampleDist, targetZ + sinH * sideSampleDist);
+        const hFront = getTerrainHeight(roverSimX + sinH * frontSampleDist, roverSimZ + cosH * frontSampleDist);
+        const hRear  = getTerrainHeight(roverSimX - sinH * frontSampleDist, roverSimZ - cosH * frontSampleDist);
+        const hRight = getTerrainHeight(roverSimX + cosH * sideSampleDist, roverSimZ - sinH * sideSampleDist);
+        const hLeft  = getTerrainHeight(roverSimX - cosH * sideSampleDist, roverSimZ + sinH * sideSampleDist);
 
         // Strict Newtonian slope pitch (nose up/down) & roll (side camber)
         const targetPitch = Math.atan2(hFront - hRear, frontSampleDist * 2);
@@ -878,23 +1204,40 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
         // Lunar gravity suspension settling (g = 1.62 m/s²)
         const pos = roverGroupRef.current.position;
-        pos.x = targetX;
-        pos.z = targetZ;
-        pos.y += (groundSurfaceY - pos.y) * Math.min(1.0, delta * 14);
+        pos.x = roverSimX;
+        pos.z = roverSimZ;
+        pos.y += (groundSurfaceY - pos.y) * Math.min(1.0, delta * 16);
 
         // Physical attitude rotation with smooth damping
         roverGroupRef.current.rotation.order = 'YXZ';
-        roverGroupRef.current.rotation.y = headingRad;
-        roverGroupRef.current.rotation.x += (targetPitch - roverGroupRef.current.rotation.x) * Math.min(1.0, delta * 9);
-        roverGroupRef.current.rotation.z += (-targetRoll - roverGroupRef.current.rotation.z) * Math.min(1.0, delta * 9);
+        roverGroupRef.current.rotation.y = roverHeadingRad;
+        roverGroupRef.current.rotation.x += (targetPitch - roverGroupRef.current.rotation.x) * Math.min(1.0, delta * 10);
+        roverGroupRef.current.rotation.z += (-targetRoll - roverGroupRef.current.rotation.z) * Math.min(1.0, delta * 10);
 
-        // Rocker-bogie wheel roll when navigating
-        if (curTelem.operation === 'NAVIGATING' || curTelem.operation === 'RETURNING') {
-          wheelsRef.current.forEach((wheel) => {
-            wheel.children[0].rotation.x += delta * 7; // Wheel roll
-          });
+        // Wheel roll and double Ackermann steering
+        const wheelRollDelta = (currentSpeed / 0.44) * delta;
+        const steerInput = (keys.a ? -1 : 0) + (keys.d ? 1 : 0);
+        const steerAngle = steerInput * 0.35; // ~20 degrees wheel pivot
+        wheelsRef.current.forEach((wheel, idx) => {
+          if (wheel.children[0]) {
+            wheel.children[0].rotation.x += wheelRollDelta;
+          }
+          if (isManual) {
+            if (idx === 0 || idx === 1) {
+              wheel.rotation.y = steerAngle; // Front steer
+            } else if (idx === 4 || idx === 5) {
+              wheel.rotation.y = -steerAngle * 0.6; // Rear counter-steer
+            } else {
+              wheel.rotation.y = 0;
+            }
+          } else {
+            wheel.rotation.y = 0;
+          }
+        });
+
+        // Rocker-bogie dynamic suspension rocking
+        if (Math.abs(currentSpeed) > 0.1) {
           if (chassisRef.current) {
-            // Subtle dynamic suspension rocking
             chassisRef.current.position.y = Math.sin(time * 9) * 0.02;
             chassisRef.current.rotation.z = Math.sin(time * 4) * 0.012;
           }
@@ -911,7 +1254,6 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
             drillBitRef.current.rotation.y += delta * 32; // High-speed drill rotation
           }
           if (drillCarriageRef.current) {
-            // Plunge drill down into regolith according to depth
             drillCarriageRef.current.position.y = 0.6 - (curTelem.drillDepthM / 2.0) * 0.9;
           }
           // Regolith dust spray (ground-anchored)
@@ -961,14 +1303,15 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       const activeCamMode = cameraModeRef.current;
       if (cameraRef.current && roverGroupRef.current) {
         const roverPos = roverGroupRef.current.position;
-        const headingRad = (curTelem.heading * Math.PI) / 180;
+        const sinH = Math.sin(roverHeadingRad);
+        const cosH = Math.cos(roverHeadingRad);
 
         if (activeCamMode === 'CHASE') {
           // Dynamic chase camera with low cinematic angle behind vehicle
           const chaseDistance = 14;
           const chaseHeight = 5.2;
-          const targetCamX = roverPos.x - Math.sin(headingRad) * chaseDistance;
-          const targetCamZ = roverPos.z - Math.cos(headingRad) * chaseDistance;
+          const targetCamX = roverPos.x - sinH * chaseDistance;
+          const targetCamZ = roverPos.z - cosH * chaseDistance;
           const targetCamY = roverPos.y + chaseHeight;
           cameraRef.current.position.lerp(
             new THREE.Vector3(targetCamX, targetCamY, targetCamZ),
@@ -976,16 +1319,18 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           );
           cameraRef.current.lookAt(roverPos.x, roverPos.y + 1.2, roverPos.z);
         } else if (activeCamMode === 'MASTCAM') {
-          // First-person stereo camera POV
+          // First-person stereo camera POV rotated with vehicle heading
+          const mastOffsetX = -0.6 * cosH + 0.8 * sinH;
+          const mastOffsetZ = 0.6 * sinH + 0.8 * cosH;
           cameraRef.current.position.set(
-            roverPos.x - 0.7,
+            roverPos.x + mastOffsetX,
             roverPos.y + 2.85,
-            roverPos.z + 0.85
+            roverPos.z + mastOffsetZ
           );
           const lookAtTarget = new THREE.Vector3(
-            roverPos.x + Math.sin(headingRad) * 25,
-            roverPos.y + 0.5,
-            roverPos.z + Math.cos(headingRad) * 25
+            roverPos.x + sinH * 30,
+            roverPos.y + 1.2,
+            roverPos.z + cosH * 30
           );
           cameraRef.current.lookAt(lookAtTarget);
         } else if (activeCamMode === 'TOP_DOWN') {
@@ -1242,6 +1587,98 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
               <span>HAZARD IN TRAVERSE CORRIDOR</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Bottom Left: Interactive Real-Time WASD Telemetry Controller */}
+      {hudVisible && (
+        <div className="absolute bottom-4 left-4 z-20 bg-[#09152B]/90 backdrop-blur-md p-3 rounded-xl border border-[#1A2E50] shadow-2xl flex flex-col gap-2 font-mono text-xs select-none">
+          <div className="flex items-center justify-between gap-3 border-b border-[#1A2E50]/80 pb-1.5">
+            <span className="text-[#60B8FF] font-bold text-[11px] tracking-wider flex items-center gap-1.5">
+              <Navigation className="w-3.5 h-3.5 text-[#38BDF8]" />
+              MANUAL PILOT [WASD]
+            </span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                driveStats.gear === 'TURBO'
+                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40'
+                  : 'bg-[#1A2E50] text-[#94A3B8]'
+              }`}
+            >
+              {driveStats.gear}
+            </span>
+          </div>
+
+          {/* Drive key indicators */}
+          <div className="flex flex-col items-center gap-1">
+            {/* W Key */}
+            <div
+              className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
+                activeKeys.w
+                  ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
+                  : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
+              }`}
+            >
+              W
+            </div>
+            {/* A S D Keys */}
+            <div className="flex gap-1">
+              <div
+                className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
+                  activeKeys.a
+                    ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
+                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
+                }`}
+              >
+                A
+              </div>
+              <div
+                className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
+                  activeKeys.s
+                    ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
+                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
+                }`}
+              >
+                S
+              </div>
+              <div
+                className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
+                  activeKeys.d
+                    ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
+                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
+                }`}
+              >
+                D
+              </div>
+            </div>
+            {/* Shift & Space Bar */}
+            <div className="flex gap-1 w-full mt-0.5">
+              <div
+                className={`flex-1 py-1 rounded border text-center font-bold text-[10px] transition-all ${
+                  activeKeys.shift
+                    ? 'bg-amber-400 text-black border-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
+                }`}
+              >
+                ⇧ BOOST
+              </div>
+              <div
+                className={`flex-1 py-1 rounded border text-center font-bold text-[10px] transition-all ${
+                  activeKeys.space
+                    ? 'bg-red-500 text-white border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
+                }`}
+              >
+                ␣ BRAKE
+              </div>
+            </div>
+          </div>
+
+          {/* Real-time speed & heading gauge */}
+          <div className="flex justify-between items-center text-[10px] text-[#94A3B8] border-t border-[#1A2E50]/80 pt-1.5 mt-0.5">
+            <span>VEL: <strong className="text-white">{driveStats.speed.toFixed(1)} m/s</strong></span>
+            <span>HDG: <strong className="text-white">{driveStats.heading}°</strong></span>
+          </div>
         </div>
       )}
     </div>

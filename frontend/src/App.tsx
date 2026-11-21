@@ -426,6 +426,7 @@ const App: React.FC = () => {
                   telemetry={telemetry}
                   selectedSite={selectedSite}
                   obstacleDetected={obstacleDetected}
+                  onTelemetryUpdate={setTelemetry}
                 />
 
                 {/* Mission Objectives HUD overlay (collapsible to keep 4K 3D view unobstructed) */}
