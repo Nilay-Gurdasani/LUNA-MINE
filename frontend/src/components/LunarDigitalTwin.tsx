@@ -843,6 +843,58 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
         wheelAssembly.add(grouser);
       }
 
+      // ── Large Circumferential Coil Spring Tire Wraps ──
+      // A thick helical spring wound around the full circumference of each tire
+      // giving the classic "spring wheel" bounce look used on lunar rovers.
+      class TireSpringCurve extends THREE.Curve<THREE.Vector3> {
+        getPoint(t: number): THREE.Vector3 {
+          const phi = t * Math.PI * 2 * 14; // 14 turns wrapping around the tire
+          const tireR = 0.47; // just proud of the 0.44 tire radius
+          // Tire cylinder axis is along X (geometry was rotateZ 90°)
+          return new THREE.Vector3(
+            (t - 0.5) * 0.40,       // span tire width (0.38 ± a little)
+            Math.sin(phi) * tireR,   // radial Y
+            Math.cos(phi) * tireR,   // radial Z
+          );
+        }
+      }
+      const tireSpringCurve = new TireSpringCurve();
+      // 200 segments for smooth coils; tube radius 0.028 for fat, visible wire
+      const tireSpringGeo = new THREE.TubeGeometry(tireSpringCurve, 200, 0.028, 10, false);
+      const tireSpringMat = new THREE.MeshStandardMaterial({
+        color: 0xfbbf24,       // amber-gold — high contrast against dark tire
+        roughness: 0.15,
+        metalness: 0.90,
+        emissive: 0x7c3900,
+        emissiveIntensity: 0.18,
+      });
+      const tireSpring = new THREE.Mesh(tireSpringGeo, tireSpringMat);
+      tireSpring.castShadow = true;
+      wheelAssembly.add(tireSpring);
+
+      // Inner spring ring at hub shoulder — adds depth & layered look
+      class InnerRingCurve extends THREE.Curve<THREE.Vector3> {
+        getPoint(t: number): THREE.Vector3 {
+          const phi = t * Math.PI * 2 * 10; // 10 tight turns near hub
+          const r = 0.28;
+          return new THREE.Vector3(
+            (t - 0.5) * 0.38,
+            Math.sin(phi) * r,
+            Math.cos(phi) * r,
+          );
+        }
+      }
+      const innerRingGeo = new THREE.TubeGeometry(new InnerRingCurve(), 140, 0.016, 8, false);
+      const innerRingMat = new THREE.MeshStandardMaterial({
+        color: 0x38bdf8,  // cyan accent ring
+        roughness: 0.20,
+        metalness: 0.92,
+        emissive: 0x002040,
+        emissiveIntensity: 0.12,
+      });
+      const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
+      wheelAssembly.add(innerRing);
+
       roverGroup.add(wheelAssembly);
       wheelsRef.current.push(wheelAssembly);
 
