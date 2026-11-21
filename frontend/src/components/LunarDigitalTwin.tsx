@@ -20,6 +20,7 @@ import {
   Sun,
   Layers,
   Crosshair,
+  MousePointer,
 } from 'lucide-react';
 
 interface LunarDigitalTwinProps {
@@ -37,7 +38,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
   onTelemetryUpdate,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [cameraMode, setCameraMode] = useState<'CHASE' | 'MASTCAM' | 'TOP_DOWN' | 'ORBIT'>('CHASE');
+  const [cameraMode, setCameraMode] = useState<'CHASE' | 'MASTCAM' | 'TOP_DOWN' | 'ORBIT'>('ORBIT');
   const [showWireframe, setShowWireframe] = useState(false);
   const [headlightsOn, setHeadlightsOn] = useState(true);
   const [hudVisible, setHudVisible] = useState(true);
@@ -218,9 +219,9 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     const width = container.clientWidth;
     const height = container.clientHeight;
 
-    // Camera (60° FOV for dramatic cinematic depth of field)
+    // Camera (52° FOV for dramatic cinematic depth of field)
     const camera = new THREE.PerspectiveCamera(52, width / height, 0.1, 2000);
-    camera.position.set(0, 12, -22);
+    camera.position.set(0, 10, -20);
     cameraRef.current = camera;
 
     // Renderer: High-Precision WebGL with ACES Filmic HDR Tone Mapping
@@ -240,15 +241,47 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     rendererRef.current = renderer;
     container.replaceChildren(renderer.domElement);
 
-    // OrbitControls for Free Orbit mode
+    // OrbitControls for intuitive mouse & trackpad camera navigation
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.maxPolarAngle = Math.PI * 0.48; // Don't clip below lunar ground
-    controls.minDistance = 3.5;
-    controls.maxDistance = 180;
-    controls.enabled = cameraMode === 'ORBIT';
+    controls.minPolarAngle = 0.05; // Prevent flipping overhead
+    controls.minDistance = 3.8;    // Sensible close-up inspection limit
+    controls.maxDistance = 140.0;  // Sensible max distance across lunar terrain
+    controls.rotateSpeed = 0.85;
+    controls.zoomSpeed = 1.0;
+    controls.mouseButtons = {
+      LEFT: THREE.MOUSE.ROTATE,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
+    controls.target.set(0, 1.2, 0);
+    controls.enabled = true; // Enabled by default for immediate mouse rotation and zoom
+    controls.update();
     controlsRef.current = controls;
+
+    // Prevent page scrolling while pointer is over 3D viewport (wheel & trackpad pinch)
+    const handleWheelPreventScroll = (e: WheelEvent) => {
+      e.preventDefault();
+      // Seamlessly switch to Orbit mode if user scrolls to zoom while in Chase or Tactical mode
+      if (cameraModeRef.current !== 'ORBIT') {
+        setCameraMode('ORBIT');
+      }
+    };
+    container.addEventListener('wheel', handleWheelPreventScroll, { passive: false });
+
+    // Seamlessly activate Orbit mode if user clicks & drags on 3D scene while in other modes
+    const handleCanvasPointerDown = (e: PointerEvent) => {
+      if (e.button === 0 && cameraModeRef.current !== 'ORBIT') {
+        setCameraMode('ORBIT');
+      }
+    };
+    container.addEventListener('pointerdown', handleCanvasPointerDown);
 
     // ── 2. PROCEDURAL 4K / HDR TEXTURES ─────────────────────────────────────────
     const regolithTex = createLunarRegolithTextures(1024);
@@ -1338,9 +1371,12 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           cameraRef.current.position.set(roverPos.x, roverPos.y + 45, roverPos.z + 0.1);
           cameraRef.current.lookAt(roverPos.x, roverPos.y, roverPos.z);
         } else if (activeCamMode === 'ORBIT') {
-          // Handled by OrbitControls — track rover position on surface
-          if (controlsRef.current) {
-            controlsRef.current.target.set(roverPos.x, roverPos.y + 1.0, roverPos.z);
+          // Handled by OrbitControls — track rover position on surface while preserving custom view angle
+          if (controlsRef.current && cameraRef.current) {
+            const newTarget = new THREE.Vector3(roverPos.x, roverPos.y + 1.0, roverPos.z);
+            const targetDelta = new THREE.Vector3().subVectors(newTarget, controlsRef.current.target);
+            cameraRef.current.position.add(targetDelta);
+            controlsRef.current.target.copy(newTarget);
             controlsRef.current.update();
           }
         }
@@ -1365,6 +1401,8 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     return () => {
       cancelAnimationFrame(animFrameId);
       window.removeEventListener('resize', handleResize);
+      container.removeEventListener('wheel', handleWheelPreventScroll);
+      container.removeEventListener('pointerdown', handleCanvasPointerDown);
       renderer.dispose();
       terrainGeo.dispose();
       terrainMat.dispose();
@@ -1383,7 +1421,12 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     if (controlsRef.current) {
       controlsRef.current.enabled = cameraMode === 'ORBIT';
       if (cameraMode === 'ORBIT' && roverGroupRef.current) {
-        controlsRef.current.target.copy(roverGroupRef.current.position);
+        controlsRef.current.target.set(
+          roverGroupRef.current.position.x,
+          roverGroupRef.current.position.y + 1.0,
+          roverGroupRef.current.position.z
+        );
+        controlsRef.current.update();
       }
     }
   }, [cameraMode]);
@@ -1417,7 +1460,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
   return (
     <div className="relative w-full h-full min-h-[480px] bg-[#010308] overflow-hidden select-none">
       {/* ThreeJS WebGL Canvas */}
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing touch-none" />
 
       {/* Crosshair Overlay for MastCam POV Mode */}
       {cameraMode === 'MASTCAM' && (
@@ -1548,6 +1591,14 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           <div className="text-gray-300">
             <span className="text-gray-400">ELEV:</span> {telemetry.elevation}m
           </div>
+        </div>
+      )}
+
+      {/* On-Screen Mouse & Trackpad Control Hint */}
+      {hudVisible && (
+        <div className="absolute top-14 right-3 z-10 flex items-center gap-2 bg-[#09152B]/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-[#1A2E50] text-[11px] font-mono text-[#94A3B8] shadow-lg pointer-events-none select-none">
+          <MousePointer className="w-3.5 h-3.5 text-[#38BDF8]" />
+          <span>Drag to rotate <span className="text-[#38BDF8] font-bold">·</span> Scroll to zoom</span>
         </div>
       )}
 
