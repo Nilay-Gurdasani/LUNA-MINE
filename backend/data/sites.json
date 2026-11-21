@@ -1,0 +1,140 @@
+{
+  "_metadata": {
+    "source": "Values compiled from NASA LRO LOLA, Diviner, Mini-RF and published PSR research. See references.",
+    "references": [
+      "Hayne et al. (2015) Nat. Geosci. \u2014 Lunar cold traps",
+      "Zuber et al. (2012) Science \u2014 LOLA south pole topography",
+      "Spudis et al. (2013) JGR \u2014 Mini-RF ice evidence",
+      "NASA Artemis III Science Definition Team Report (2020)",
+      "Colaprete et al. (2010) Science \u2014 LCROSS water confirmation"
+    ],
+    "label": "SIMULATED \u2014 values derived from published research; not direct sensor readings"
+  },
+  "sites": [
+    {
+      "id": "site_shackleton",
+      "name": "Shackleton Crater Rim",
+      "region": "Lunar South Pole",
+      "coordinates": {
+        "lat": -89.54,
+        "lon": 129.78
+      },
+      "elevation_m": -3200,
+      "psr_coverage_pct": 89,
+      "ice_evidence": "High \u2014 ShadowCam imagery and M3 water-ice absorption (Hayne et al.)",
+      "surface_temp_min_K": 29,
+      "surface_temp_max_K": 215,
+      "slope_deg": 18.4,
+      "terrain_difficulty": "High",
+      "traversability_score": 0.32,
+      "ice_concentration_wt_pct": {
+        "min": 1.0,
+        "max": 8.5,
+        "nominal": 3.5
+      },
+      "travel_distance_from_base_km": 2.1,
+      "solar_access_pct": 11,
+      "source": "Zuber et al. 2012; Hayne et al. 2015; ShadowCam 2023"
+    },
+    {
+      "id": "site_cabeus",
+      "name": "Cabeus Crater",
+      "region": "Lunar South Pole",
+      "coordinates": {
+        "lat": -84.9,
+        "lon": -35.5
+      },
+      "elevation_m": -4700,
+      "psr_coverage_pct": 97,
+      "ice_evidence": "Confirmed \u2014 LCROSS impactor detected water vapour and ice (Colaprete et al. 2010)",
+      "surface_temp_min_K": 24,
+      "surface_temp_max_K": 51,
+      "slope_deg": 6.2,
+      "terrain_difficulty": "Medium",
+      "traversability_score": 0.61,
+      "ice_concentration_wt_pct": {
+        "min": 2.0,
+        "max": 12.0,
+        "nominal": 5.6
+      },
+      "travel_distance_from_base_km": 48.3,
+      "solar_access_pct": 3,
+      "source": "Colaprete et al. 2010 Science; Spudis et al. 2013; LOLA LDSM"
+    },
+    {
+      "id": "site_haworth",
+      "name": "Haworth Crater",
+      "region": "Lunar South Pole",
+      "coordinates": {
+        "lat": -87.49,
+        "lon": -5.0
+      },
+      "elevation_m": -3900,
+      "psr_coverage_pct": 83,
+      "ice_evidence": "Moderate \u2014 Neutron suppression hydrogen signal (LEND instrument)",
+      "surface_temp_min_K": 32,
+      "surface_temp_max_K": 128,
+      "slope_deg": 9.8,
+      "terrain_difficulty": "Medium",
+      "traversability_score": 0.55,
+      "ice_concentration_wt_pct": {
+        "min": 0.5,
+        "max": 6.0,
+        "nominal": 2.1
+      },
+      "travel_distance_from_base_km": 18.7,
+      "solar_access_pct": 17,
+      "source": "Mitrofanov et al. 2010 (LEND); Hayne et al. 2015"
+    },
+    {
+      "id": "site_faustini",
+      "name": "Faustini Crater",
+      "region": "Lunar South Pole",
+      "coordinates": {
+        "lat": -87.06,
+        "lon": 77.0
+      },
+      "elevation_m": -4100,
+      "psr_coverage_pct": 91,
+      "ice_evidence": "High \u2014 Mini-RF anomalous CPR and Diviner cold-trap confirmation",
+      "surface_temp_min_K": 27,
+      "surface_temp_max_K": 68,
+      "slope_deg": 12.1,
+      "terrain_difficulty": "High",
+      "traversability_score": 0.41,
+      "ice_concentration_wt_pct": {
+        "min": 1.5,
+        "max": 9.0,
+        "nominal": 4.2
+      },
+      "travel_distance_from_base_km": 31.5,
+      "solar_access_pct": 9,
+      "source": "Spudis et al. 2013; Hayne et al. 2015; Diviner Radiometer"
+    },
+    {
+      "id": "site_nobile",
+      "name": "Nobile Crater",
+      "region": "Lunar South Pole",
+      "coordinates": {
+        "lat": -85.43,
+        "lon": 53.56
+      },
+      "elevation_m": -3600,
+      "psr_coverage_pct": 76,
+      "ice_evidence": "Moderate \u2014 Selected as Artemis III candidate region; orbital hydrogen signal",
+      "surface_temp_min_K": 35,
+      "surface_temp_max_K": 182,
+      "slope_deg": 7.4,
+      "terrain_difficulty": "Low",
+      "traversability_score": 0.74,
+      "ice_concentration_wt_pct": {
+        "min": 0.3,
+        "max": 5.5,
+        "nominal": 1.8
+      },
+      "travel_distance_from_base_km": 9.4,
+      "solar_access_pct": 24,
+      "source": "NASA Artemis III Science Definition Team 2020; Hayne et al. 2015"
+    }
+  ]
+}

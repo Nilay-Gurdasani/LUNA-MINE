@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# Environment variables
+.env
+*.env
+
+# SQLite database (runtime — regenerates on startup)
+backend/db/*.db
+backend/db/*.db-shm
+backend/db/*.db-wal
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node / Frontend (to be added later)
+node_modules/
+.next/
+dist/
+build/
+.cache/
+
+# Logs
+*.log
+logs/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Large raw data files (too large for git)
+backend/data/raw/usgs_lunar_products.json

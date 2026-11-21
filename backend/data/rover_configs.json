@@ -1,0 +1,45 @@
+{
+  "_metadata": {
+    "source": "Inspired by NASA VIPER rover specs and published lunar rover research",
+    "references": [
+      "NASA VIPER Mission Overview (2023)",
+      "Zacny et al. \u2014 Lunar excavation energy requirements",
+      "ESA SHERPA rover concept studies"
+    ],
+    "label": "SIMULATED \u2014 specs inspired by real rovers but adjusted for simulation"
+  },
+  "rovers": [
+    {
+      "id": "rover_scout",
+      "name": "Scout-I (Lightweight Prospector)",
+      "inspired_by": "NASA VIPER concept",
+      "mass_kg": 430,
+      "battery_capacity_kWh": 3.5,
+      "solar_panel_kW": 0.45,
+      "max_speed_kmh": 0.8,
+      "avg_traverse_power_kW": 0.18,
+      "excavation_rate_kg_per_hour": 12,
+      "excavation_power_kW": 0.55,
+      "payload_capacity_kg": 50,
+      "max_slope_deg": 15,
+      "drill_depth_m": 1.0,
+      "best_for": "Prospecting and light ice extraction in accessible PSR edges"
+    },
+    {
+      "id": "rover_miner",
+      "name": "Miner-II (Heavy Extractor)",
+      "inspired_by": "ESA SHERPA / NASA RASSOR concepts",
+      "mass_kg": 850,
+      "battery_capacity_kWh": 8.0,
+      "solar_panel_kW": 0.9,
+      "max_speed_kmh": 0.5,
+      "avg_traverse_power_kW": 0.32,
+      "excavation_rate_kg_per_hour": 35,
+      "excavation_power_kW": 1.2,
+      "payload_capacity_kg": 150,
+      "max_slope_deg": 10,
+      "drill_depth_m": 2.5,
+      "best_for": "High-volume ice extraction at confirmed PSR sites"
+    }
+  ]
+}

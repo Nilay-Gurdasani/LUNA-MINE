@@ -1,0 +1,74 @@
+{
+  "_metadata": {
+    "source": "Energy constants from Leger et al. PNAS; NASA STMD ISRU reports; Zubrin et al.",
+    "references": [
+      "Leger et al. (PNAS) \u2014 End-to-end energy for lunar LOX: ~24.3 kWh/kg",
+      "NASA STMD ISRU Technology Development \u2014 Water ice thermal extraction",
+      "Sanders & Larson (2013) \u2014 ISRU roadmap energy budgets",
+      "Taylor et al. (2019) \u2014 Regolith XRD mineralogy (ilmenite wt%)"
+    ],
+    "label": "SIMULATED \u2014 constants derived from published research"
+  },
+  "pathways": [
+    {
+      "id": "water_ice_extraction",
+      "name": "Water-Ice Thermal Extraction",
+      "description": "Heats icy regolith to sublimate water ice; vapour is captured and condensed.",
+      "feedstock": "Icy regolith (PSR)",
+      "primary_product": "Water (H2O)",
+      "byproducts": [
+        "Processed dry regolith"
+      ],
+      "energy_constants": {
+        "excavation_kWh_per_kg_regolith": 0.012,
+        "heating_kWh_per_kg_regolith": 0.18,
+        "condensation_kWh_per_kg_water": 0.95,
+        "total_kWh_per_kg_water_nominal": 4.8,
+        "source": "NASA STMD thermal extraction models"
+      },
+      "yield_model": {
+        "water_per_kg_regolith_kg": "ice_concentration_wt_pct / 100",
+        "efficiency_factor": 0.72,
+        "note": "72% capture efficiency \u2014 losses to sublimation leakage and cold-trap re-deposition"
+      },
+      "constraints": {
+        "min_ice_concentration_wt_pct": 0.5,
+        "max_operating_temp_K": 400,
+        "storage_pressure_kPa": 101
+      }
+    },
+    {
+      "id": "regolith_oxygen_reduction",
+      "name": "Regolith Oxygen Extraction (Hydrogen Reduction)",
+      "description": "Reduces ilmenite (FeTiO3) in regolith using hydrogen; produces water then electrolysed for O2.",
+      "feedstock": "Bulk lunar regolith (mare or highland)",
+      "primary_product": "Liquid Oxygen (LOX)",
+      "byproducts": [
+        "Iron (Fe)",
+        "Titanium oxide (TiO2)",
+        "Recycled H2"
+      ],
+      "energy_constants": {
+        "total_kWh_per_kg_LOX": 24.3,
+        "uncertainty_kWh": 5.8,
+        "reactor_share_pct": 55,
+        "electrolysis_share_pct": 38,
+        "liquefaction_share_pct": 4.8,
+        "excavation_transport_share_pct": 2.2,
+        "source": "Leger et al. PNAS \u2014 end-to-end LOX from ilmenite-bearing regolith"
+      },
+      "yield_model": {
+        "ilmenite_wt_pct_mare": 10.0,
+        "oxygen_per_kg_ilmenite_kg": 0.197,
+        "efficiency_factor": 0.68,
+        "note": "Assumes 10 wt% ilmenite in mare regolith (Taylor et al. 2019 XRD data)"
+      },
+      "constraints": {
+        "min_ilmenite_wt_pct": 3.0,
+        "reactor_temp_K": 900,
+        "hydrogen_feedstock_required": true,
+        "best_for": "Mare regions \u2014 not PSR"
+      }
+    }
+  ]
+}
