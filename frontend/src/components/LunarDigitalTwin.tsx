@@ -94,6 +94,15 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
   const drillBitRef = useRef<THREE.Mesh | null>(null);
   const drillCarriageRef = useRef<THREE.Group | null>(null);
   const wheelsRef = useRef<THREE.Group[]>([]);
+  const suspensionRef = useRef<{
+    wheelGroup: THREE.Group;
+    nominalWy: number;
+    currentDeflection: number;
+    strutGroup: THREE.Group;
+    pistonMesh: THREE.Mesh;
+    springMesh: THREE.Mesh;
+    barrelMesh: THREE.Mesh;
+  }[]>([]);
   const lidarPuckRef = useRef<THREE.Mesh | null>(null);
   const mastHeadRef = useRef<THREE.Group | null>(null);
   const dishGroupRef = useRef<THREE.Group | null>(null);
@@ -744,15 +753,17 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
     roverGroup.add(chassisGroup);
 
-    // C. Rocker-Bogie 6-Wheel Articulated Suspension
+    // C. Hydro-Pneumatic Rocker-Bogie 6-Wheel Articulated Suspension with Real Springs & Hydraulic Dampers
     wheelsRef.current = [];
+    suspensionRef.current = [];
+
     const wheelPositions: [number, number, number][] = [
-      [-1.45, 0.42, 0.95],  // Front Left
-      [-1.52, 0.42, 0.0],   // Middle Left
-      [-1.45, 0.42, -0.95], // Rear Left
-      [1.45, 0.42, 0.95],   // Front Right
-      [1.52, 0.42, 0.0],    // Middle Right
-      [1.45, 0.42, -0.95],  // Rear Right
+      [-1.45, 0.42, 0.95],  // 0: Front Left
+      [-1.52, 0.42, 0.0],   // 1: Middle Left
+      [-1.45, 0.42, -0.95], // 2: Rear Left
+      [1.45,  0.42, 0.95],  // 3: Front Right
+      [1.52,  0.42, 0.0],   // 4: Middle Right
+      [1.45,  0.42, -0.95], // 5: Rear Right
     ];
 
     const wheelTireGeo = new THREE.CylinderGeometry(0.44, 0.44, 0.38, 24);
@@ -760,7 +771,55 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     const wheelRimGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.4, 16);
     wheelRimGeo.rotateZ(Math.PI / 2);
 
-    wheelPositions.forEach(([wx, wy, wz]) => {
+    // Spring Curve generator for 3D helical coil springs
+    class SpringHelixCurve extends THREE.Curve<THREE.Vector3> {
+      radius: number;
+      height: number;
+      turns: number;
+
+      constructor(radius = 0.062, height = 0.34, turns = 5.5) {
+        super();
+        this.radius = radius;
+        this.height = height;
+        this.turns = turns;
+      }
+
+      getPoint(t: number): THREE.Vector3 {
+        const angle = t * Math.PI * 2 * this.turns;
+        const x = Math.cos(angle) * this.radius;
+        const y = (t - 0.5) * this.height;
+        const z = Math.sin(angle) * this.radius;
+        return new THREE.Vector3(x, y, z);
+      }
+    }
+
+    const springCurve = new SpringHelixCurve(0.062, 0.34, 5.5);
+    const springGeo = new THREE.TubeGeometry(springCurve, 48, 0.012, 8, false);
+
+    // Suspension materials
+    const springMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8, // High-tensile cyan spring steel
+      roughness: 0.22,
+      metalness: 0.92,
+    });
+
+    const chromePistonMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff, // Mirror chrome hydraulic rod
+      roughness: 0.08,
+      metalness: 0.98,
+    });
+
+    const hydraulicBarrelMat = new THREE.MeshStandardMaterial({
+      color: 0x1e293b, // Dark anodized titanium cylinder
+      roughness: 0.35,
+      metalness: 0.88,
+    });
+
+    const barrelGeo = new THREE.CylinderGeometry(0.052, 0.052, 0.26, 16);
+    const pistonGeo = new THREE.CylinderGeometry(0.030, 0.030, 0.32, 16);
+    const collarGeo = new THREE.CylinderGeometry(0.062, 0.062, 0.045, 16);
+
+    wheelPositions.forEach(([wx, wy, wz], idx) => {
       const wheelAssembly = new THREE.Group();
       wheelAssembly.position.set(wx, wy, wz);
 
@@ -787,13 +846,76 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       roverGroup.add(wheelAssembly);
       wheelsRef.current.push(wheelAssembly);
 
-      // Articulated Rocker-Bogie Suspension Arm Struts
-      const strutArmGeo = new THREE.CylinderGeometry(0.045, 0.045, 0.72);
-      const strutArm = new THREE.Mesh(strutArmGeo, titaniumMat);
-      strutArm.position.set(wx > 0 ? wx - 0.16 : wx + 0.16, wy + 0.32, wz);
-      strutArm.rotation.z = wx > 0 ? -0.32 : 0.32;
-      strutArm.castShadow = true;
-      roverGroup.add(strutArm);
+      // ── High-Fidelity Hydro-Pneumatic Coilover Strut Assembly ──
+      const isRight = wx > 0;
+      const strutGroup = new THREE.Group();
+      const mountX = isRight ? wx - 0.22 : wx + 0.22;
+      const mountY = wy + 0.32;
+      const mountZ = wz;
+      strutGroup.position.set(mountX, mountY, mountZ);
+      strutGroup.rotation.z = isRight ? -0.28 : 0.28;
+
+      // 1. Outer Anodized Hydraulic Fluid Barrel (Mounted to upper frame)
+      const barrel = new THREE.Mesh(barrelGeo, hydraulicBarrelMat);
+      barrel.position.y = 0.11;
+      barrel.castShadow = true;
+      strutGroup.add(barrel);
+
+      // Hydraulic Fluid Reservoir Collar
+      const collar = new THREE.Mesh(collarGeo, goldMLIMat);
+      collar.position.y = 0.22;
+      strutGroup.add(collar);
+
+      // Top Pivot Clevis Eyelet
+      const topEyeletGeo = new THREE.TorusGeometry(0.032, 0.012, 8, 16);
+      const topEyelet = new THREE.Mesh(topEyeletGeo, titaniumMat);
+      topEyelet.position.y = 0.26;
+      strutGroup.add(topEyelet);
+
+      // 2. Sliding Mirror-Chrome Hydraulic Piston Shaft
+      const piston = new THREE.Mesh(pistonGeo, chromePistonMat);
+      piston.position.y = -0.10;
+      piston.castShadow = true;
+      strutGroup.add(piston);
+
+      // Bottom Axle Knuckle Joint
+      const botKnuckleGeo = new THREE.SphereGeometry(0.042, 12, 12);
+      const botKnuckle = new THREE.Mesh(botKnuckleGeo, titaniumMat);
+      botKnuckle.position.y = -0.16;
+      piston.add(botKnuckle);
+
+      // 3. Heavy-Duty Helical Coil Spring
+      const spring = new THREE.Mesh(springGeo, springMat);
+      spring.position.y = 0.02;
+      spring.castShadow = true;
+      strutGroup.add(spring);
+
+      roverGroup.add(strutGroup);
+
+      // Rocker-Bogie Longitudinal Differential Trusses (linking middle to front/rear wheels)
+      if (idx === 1 || idx === 4) {
+        const pivotHubGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.16, 16);
+        pivotHubGeo.rotateZ(Math.PI / 2);
+        const pivotHub = new THREE.Mesh(pivotHubGeo, titaniumMat);
+        pivotHub.position.set(isRight ? wx - 0.26 : wx + 0.26, wy + 0.44, wz);
+        roverGroup.add(pivotHub);
+
+        const rockerTrussGeo = new THREE.BoxGeometry(0.05, 0.07, 1.88);
+        const rockerTruss = new THREE.Mesh(rockerTrussGeo, titaniumMat);
+        rockerTruss.position.set(isRight ? wx - 0.26 : wx + 0.26, wy + 0.44, wz);
+        rockerTruss.castShadow = true;
+        roverGroup.add(rockerTruss);
+      }
+
+      suspensionRef.current.push({
+        wheelGroup: wheelAssembly,
+        nominalWy: wy,
+        currentDeflection: 0,
+        strutGroup,
+        pistonMesh: piston,
+        springMesh: spring,
+        barrelMesh: barrel,
+      });
     });
 
     // D. Articulated Vertical Core Drill Rig (Autonomous Subsurface Extractor)
@@ -1216,38 +1338,87 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       // Update Rover 3D Model with Strict Surface Physics
       const curTelem = telemetryRef.current;
       if (roverGroupRef.current) {
-        // Strict Surface Elevation Contact Physics:
-        // Anchoring origin at groundY + 0.015 sets tires directly on regolith with ~5mm realistic sinkage
-        const groundSurfaceY = getTerrainHeight(roverSimX, roverSimZ) + 0.015;
-
-        // Multi-point terrain slope sampling for realistic Newtonian vehicle attitude
-        const frontSampleDist = 1.35;
-        const sideSampleDist = 1.45;
-        const sinH = Math.sin(roverHeadingRad);
+        // ── HYDRO-PNEUMATIC ROCKER-BOGIE SUSPENSION & STABILIZATION SIMULATION ──
         const cosH = Math.cos(roverHeadingRad);
+        const sinH = Math.sin(roverHeadingRad);
 
-        const hFront = getTerrainHeight(roverSimX + sinH * frontSampleDist, roverSimZ + cosH * frontSampleDist);
-        const hRear  = getTerrainHeight(roverSimX - sinH * frontSampleDist, roverSimZ - cosH * frontSampleDist);
-        const hRight = getTerrainHeight(roverSimX + cosH * sideSampleDist, roverSimZ - sinH * sideSampleDist);
-        const hLeft  = getTerrainHeight(roverSimX - cosH * sideSampleDist, roverSimZ + sinH * sideSampleDist);
+        // 1. Calculate physical ground elevation directly beneath each of the 6 individual wheels
+        const wheelGroundHeights: number[] = [];
+        const wheelOffsets = [
+          { x: -1.45, z: 0.95 },  // 0: Front Left
+          { x: -1.52, z: 0.0 },   // 1: Middle Left
+          { x: -1.45, z: -0.95 }, // 2: Rear Left
+          { x: 1.45,  z: 0.95 },  // 3: Front Right
+          { x: 1.52,  z: 0.0 },   // 4: Middle Right
+          { x: 1.45,  z: -0.95 }, // 5: Rear Right
+        ];
 
-        // Strict Newtonian slope pitch (nose up/down) & roll (side camber)
-        const targetPitch = Math.atan2(hFront - hRear, frontSampleDist * 2);
-        const targetRoll  = Math.atan2(hRight - hLeft, sideSampleDist * 2);
+        for (let i = 0; i < 6; i++) {
+          const off = wheelOffsets[i];
+          const wx = roverSimX + off.x * cosH + off.z * sinH;
+          const wz = roverSimZ - off.x * sinH + off.z * cosH;
+          wheelGroundHeights.push(getTerrainHeight(wx, wz));
+        }
 
-        // Lunar gravity suspension settling (g = 1.62 m/s²)
+        // 2. Multi-point planar averaging for rock-solid chassis stabilization
+        const avgTerrainY = (
+          wheelGroundHeights[0] + wheelGroundHeights[1] + wheelGroundHeights[2] +
+          wheelGroundHeights[3] + wheelGroundHeights[4] + wheelGroundHeights[5]
+        ) / 6.0;
+
+        // 3. 6-point rocker-bogie pitch & roll calculation (absorbs single-wheel bumps smoothly)
+        const hFront = (wheelGroundHeights[0] + wheelGroundHeights[3]) * 0.5;
+        const hRear  = (wheelGroundHeights[2] + wheelGroundHeights[5]) * 0.5;
+        const hLeft  = (wheelGroundHeights[0] + wheelGroundHeights[1] + wheelGroundHeights[2]) / 3.0;
+        const hRight = (wheelGroundHeights[3] + wheelGroundHeights[4] + wheelGroundHeights[5]) / 3.0;
+
+        // Longitudinal baseline = 1.90m, lateral baseline = 2.94m
+        const targetPitch = Math.atan2(hFront - hRear, 1.90);
+        const targetRoll  = Math.atan2(hRight - hLeft, 2.94);
+
+        // 4. Stable critically-damped chassis attitude (eliminates jitter and sudden snapping)
         const pos = roverGroupRef.current.position;
         pos.x = roverSimX;
         pos.z = roverSimZ;
-        pos.y += (groundSurfaceY - pos.y) * Math.min(1.0, delta * 16);
+        
+        // Main payload chassis floats smoothly above averaged terrain plane with ~5mm tire sinkage
+        const targetChassisY = avgTerrainY + 0.015;
+        pos.y += (targetChassisY - pos.y) * Math.min(1.0, delta * 9.0);
 
-        // Physical attitude rotation with smooth damping
+        // Critically damped pitch & roll for silky-smooth, stable gliding
         roverGroupRef.current.rotation.order = 'YXZ';
         roverGroupRef.current.rotation.y = roverHeadingRad;
-        roverGroupRef.current.rotation.x += (targetPitch - roverGroupRef.current.rotation.x) * Math.min(1.0, delta * 10);
-        roverGroupRef.current.rotation.z += (-targetRoll - roverGroupRef.current.rotation.z) * Math.min(1.0, delta * 10);
+        roverGroupRef.current.rotation.x += (targetPitch - roverGroupRef.current.rotation.x) * Math.min(1.0, delta * 6.5);
+        roverGroupRef.current.rotation.z += (-targetRoll - roverGroupRef.current.rotation.z) * Math.min(1.0, delta * 6.5);
 
-        // Wheel roll and double Ackermann steering
+        // 5. Independent 6-Wheel Hydraulic & Spring Suspension Deflection
+        suspensionRef.current.forEach((susp, i) => {
+          const groundUnderWheel = wheelGroundHeights[i];
+          // Wheel elevation error relative to chassis plane
+          const terrainDelta = groundUnderWheel - avgTerrainY;
+          // Clamp physical suspension travel stroke: [-0.20m, +0.20m]
+          const clampedTravel = Math.max(-0.20, Math.min(0.20, terrainDelta));
+
+          // Viscous hydraulic damper interpolation (absorbs bumps smoothly)
+          susp.currentDeflection += (clampedTravel - susp.currentDeflection) * Math.min(1.0, delta * 12.0);
+
+          // Articulate wheel assembly vertically along local Y
+          susp.wheelGroup.position.y = susp.nominalWy + susp.currentDeflection;
+
+          // Slide chrome hydraulic piston rod inside the barrel
+          if (susp.pistonMesh) {
+            susp.pistonMesh.position.y = -0.10 + susp.currentDeflection * 0.70;
+          }
+
+          // Compress or extend helical coil spring
+          if (susp.springMesh) {
+            // When wheel is pushed up (bump), spring compresses (< 1.0); in dip, spring extends (> 1.0)
+            const springCompression = Math.max(0.68, Math.min(1.32, 1.0 - susp.currentDeflection * 1.4));
+            susp.springMesh.scale.y = springCompression;
+          }
+        });
+
+        // 6. Wheel roll and double Ackermann steering
         const wheelRollDelta = (currentSpeed / 0.44) * delta;
         const steerInput = (keys.a ? -1 : 0) + (keys.d ? 1 : 0);
         const steerAngle = steerInput * 0.35; // ~20 degrees wheel pivot
@@ -1268,17 +1439,14 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           }
         });
 
-        // Rocker-bogie dynamic suspension rocking
-        if (Math.abs(currentSpeed) > 0.1) {
-          if (chassisRef.current) {
-            chassisRef.current.position.y = Math.sin(time * 9) * 0.02;
-            chassisRef.current.rotation.z = Math.sin(time * 4) * 0.012;
-          }
-        } else {
-          if (chassisRef.current) {
-            chassisRef.current.position.y = 0;
-            chassisRef.current.rotation.z = 0;
-          }
+        // 7. Subtle regolith traction feedback (stable micro-damping, no harsh wobble)
+        if (Math.abs(currentSpeed) > 0.05 && chassisRef.current) {
+          const grouserFreq = (Math.abs(currentSpeed) / 0.44) * 8; // 8 grousers per tire rotation
+          chassisRef.current.position.y = Math.sin(time * grouserFreq) * 0.003;
+          chassisRef.current.rotation.z = Math.sin(time * (grouserFreq * 0.5)) * 0.0015;
+        } else if (chassisRef.current) {
+          chassisRef.current.position.y = 0;
+          chassisRef.current.rotation.z = 0;
         }
 
         // Rotary Percussive Drill Animation
@@ -1403,6 +1571,8 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       window.removeEventListener('resize', handleResize);
       container.removeEventListener('wheel', handleWheelPreventScroll);
       container.removeEventListener('pointerdown', handleCanvasPointerDown);
+      suspensionRef.current = [];
+      wheelsRef.current = [];
       renderer.dispose();
       terrainGeo.dispose();
       terrainMat.dispose();
