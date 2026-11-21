@@ -3,6 +3,8 @@ LUNA-MINE — FastAPI Application Entry Point
 Run with: uvicorn main:app --reload --port 8000
 """
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -16,10 +18,18 @@ app = FastAPI(
     description=f"Autonomous Lunar Resource Intelligence & Mining Simulator\n\n> {SIMULATION_DISCLAIMER}",
 )
 
-# ── CORS (allow React frontend on localhost:3000) ──────────────────────────────
+# ── CORS (origins can be configured with LUNA_CORS_ORIGINS) ───────────────────
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "LUNA_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    ).split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
