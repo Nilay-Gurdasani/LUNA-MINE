@@ -92,6 +92,8 @@ export interface RoverTelemetry {
   gridY: number;
   batterySoc: number; // % (0-100)
   remainingEnergyKwh: number;
+  /** Cumulative simulated energy recovered from sampled hydrogen-bearing material. */
+  mineralEnergyRecoveredKwh?: number;
   batteryCapacityKwh: number;
   powerDrawWatts: number;
   tempCelsius: number;

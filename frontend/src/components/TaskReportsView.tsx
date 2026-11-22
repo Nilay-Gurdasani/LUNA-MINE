@@ -77,6 +77,7 @@ export const TaskReportsView: React.FC<TaskReportsViewProps> = ({ reports, onBac
               <div><span>Drill depth</span><strong>{Math.max(0, selected.endTelemetry.drillDepthM - selected.startTelemetry.drillDepthM).toFixed(2)} m</strong></div>
               <div><span>Samples</span><strong>{Math.max(0, selected.endTelemetry.coreSamplesCount - selected.startTelemetry.coreSamplesCount)}</strong></div>
               <div><span>Battery used</span><strong>{Math.max(0, selected.startTelemetry.batterySoc - selected.endTelemetry.batterySoc).toFixed(1)}%</strong></div>
+              <div><span>Energy recovered</span><strong>{Math.max(0, (selected.endTelemetry.mineralEnergyRecoveredKwh ?? 0) - (selected.startTelemetry.mineralEnergyRecoveredKwh ?? 0)).toFixed(2)} kWh</strong></div>
             </div>
 
             <section className="task-report-section">

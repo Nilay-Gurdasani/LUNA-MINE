@@ -5,7 +5,6 @@ import {
   Play,
   Pause,
   RotateCcw,
-  Satellite,
   MapPin,
   FileText,
   Presentation,
@@ -87,9 +86,11 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="w-full bg-[#111619] border-b border-[#293235] px-3 md:px-5 py-2 flex flex-wrap items-center justify-between gap-2.5 select-none z-30">
       {/* Brand Identity & Mission ID */}
       <div className="flex items-center space-x-3 shrink-0">
-        <div className="w-8 h-8 rounded bg-[#191f22] border border-[#a7d9df]/40 flex items-center justify-center text-[#a7d9df] font-bold shadow-[0_0_12px_rgba(96,184,255,0.3)]">
-          <Satellite className="w-4 h-4 animate-pulse text-[#75d8cc]" />
-        </div>
+        <img
+          src="/luna-mine-logo.png"
+          alt="LUNA-MINE rover on a crescent moon"
+          className="w-[60px] h-10 rounded-md border border-[#303137] object-cover"
+        />
         <div>
           <div className="flex items-center space-x-1.5">
             <span className="font-montserrat font-black text-base md:text-lg tracking-wider text-white">

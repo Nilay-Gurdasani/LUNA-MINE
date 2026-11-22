@@ -99,6 +99,10 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry }) => 
               <span className="text-gray-400 text-[9px] block">LOAD POWER DRAW</span>
               <span className="text-amber-400 font-semibold">{telemetry.powerDrawWatts} W</span>
             </div>
+            <div className="bg-[#080b0e] p-1.5 rounded col-span-2">
+              <span className="text-gray-400 text-[9px] block">MINERAL ENERGY RECOVERED</span>
+              <span className="text-emerald-400 font-semibold">{(telemetry.mineralEnergyRecoveredKwh ?? 0).toFixed(2)} kWh</span>
+            </div>
           </div>
         </div>
 

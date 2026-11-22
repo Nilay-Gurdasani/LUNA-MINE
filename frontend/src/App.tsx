@@ -31,9 +31,9 @@ import { TaskReportsView } from './components/TaskReportsView';
 
 // ── Initial rover telemetry for the 3D Digital Twin ──────────────────────────
 const INITIAL_TELEMETRY: RoverTelemetry = {
-  lat: -89.5400, lon: 129.7800, elevation: -3200, heading: 45,
+  lat: LUNAR_REGIONS[0].sites[0].lat, lon: LUNAR_REGIONS[0].sites[0].lon, elevation: LUNAR_REGIONS[0].sites[0].elevation, heading: 45,
   gridX: 0, gridY: 0,
-  batterySoc: 94.5, remainingEnergyKwh: 22.68, batteryCapacityKwh: 24.0,
+  batterySoc: 94.5, remainingEnergyKwh: 22.68, mineralEnergyRecoveredKwh: 0, batteryCapacityKwh: 24.0,
   powerDrawWatts: 340, tempCelsius: -42.5, thermalLoadPct: 22.0,
   health: { mobility: 100, sensorMast: 100, rotaryDrill: 97, comms: 100 },
   storageUsedKg: 142, storageCapacityKg: 500,
@@ -75,6 +75,7 @@ const App: React.FC = () => {
   const [recommendation, setRecommendation] = useState<DecisionRecommendation | null>(null);
   const [, setCommandLogs] = useState<CommandLogEntry[]>([]);
   const [telemetry, setTelemetry] = useState<RoverTelemetry>({ ...INITIAL_TELEMETRY });
+  const [hydrationDetectedSiteId, setHydrationDetectedSiteId] = useState<string | null>(null);
   const [operation, setOperation] = useState<OperationState>('IDLE');
   const [obstacleDetected, setObstacleDetected] = useState<boolean>(false);
   const [showAdaptiveHUD, setShowAdaptiveHUD] = useState<boolean>(false);
@@ -230,39 +231,61 @@ const App: React.FC = () => {
   };
 
   const handleTaskScan = () => {
+    const hasHydrogenBearingMinerals = !!selectedSite
+      && selectedSite.resourceIndicator >= 80
+      && selectedSite.psrProximityM <= 200;
+    setHydrationDetectedSiteId(hasHydrogenBearingMinerals ? selectedSite.id : null);
     const scanTelemetry = { ...telemetry, speedMs: 0, operation: 'SCANNING' as const, powerDrawWatts: 420 };
     setOperation('SCANNING');
     setTelemetry(scanTelemetry);
-    recordTaskAction('SCAN', `Simulated surface scan recorded at heading ${Math.round(telemetry.heading)}°.`, scanTelemetry);
+    recordTaskAction('SCAN', hasHydrogenBearingMinerals
+      ? `Surface scan at heading ${Math.round(telemetry.heading)}° detected a hydrogen-bearing hydroxyl/water-ice signature. Sample the regolith to recover energy.`
+      : `Simulated surface scan recorded at heading ${Math.round(telemetry.heading)}°; no recoverable hydration signature detected.`, scanTelemetry);
   };
 
   const handleTaskDrill = () => {
     const depth = Math.min(telemetry.targetDrillDepthM, telemetry.drillDepthM + 0.5);
+    const drillEnergyCostKwh = 0.12;
+    const remainingEnergyKwh = Math.max(0, telemetry.remainingEnergyKwh - drillEnergyCostKwh);
     const drillTelemetry = {
       ...telemetry,
       speedMs: 0,
       operation: 'DRILLING' as const,
       drillDepthM: depth,
       storageUsedKg: Math.min(telemetry.storageCapacityKg, telemetry.storageUsedKg + 35),
-      powerDrawWatts: 880,
+      remainingEnergyKwh: Math.round(remainingEnergyKwh * 1000) / 1000,
+      batterySoc: telemetry.batteryCapacityKwh > 0 ? Math.round((remainingEnergyKwh / telemetry.batteryCapacityKwh) * 10000) / 100 : 0,
+      powerDrawWatts: 12000,
     };
     setOperation('DRILLING');
     setTelemetry(drillTelemetry);
-    recordTaskAction('DRILL', `Drill reached ${depth.toFixed(2)} m depth; simulated regolith yield added.`, drillTelemetry);
+    recordTaskAction('DRILL', `Drill reached ${depth.toFixed(2)} m depth; heavy rotary drilling consumed ${drillEnergyCostKwh.toFixed(2)} kWh.`, drillTelemetry);
   };
 
   const handleTaskSample = () => {
+    const recoveredKwh = hydrationDetectedSiteId && hydrationDetectedSiteId === selectedSite?.id ? 0.08 : 0;
+    const sampleEnergyCostKwh = 0.02;
+    const remainingEnergyKwh = Math.min(
+      telemetry.batteryCapacityKwh,
+      Math.max(0, telemetry.remainingEnergyKwh - sampleEnergyCostKwh + recoveredKwh),
+    );
     const sampleTelemetry = {
       ...telemetry,
       speedMs: 0,
       operation: 'SAMPLING' as const,
       coreSamplesCount: telemetry.coreSamplesCount + 1,
       storageUsedKg: Math.min(telemetry.storageCapacityKg, telemetry.storageUsedKg + 18),
+      remainingEnergyKwh: Math.round(remainingEnergyKwh * 1000) / 1000,
+      batterySoc: telemetry.batteryCapacityKwh > 0 ? Math.round((remainingEnergyKwh / telemetry.batteryCapacityKwh) * 10000) / 100 : 0,
+      mineralEnergyRecoveredKwh: (telemetry.mineralEnergyRecoveredKwh ?? 0) + recoveredKwh,
       powerDrawWatts: 290,
     };
     setOperation('SAMPLING');
     setTelemetry(sampleTelemetry);
-    recordTaskAction('SAMPLE', `Surface sample ${sampleTelemetry.coreSamplesCount} collected.`, sampleTelemetry);
+    recordTaskAction('SAMPLE', recoveredKwh > 0
+      ? `Surface sample ${sampleTelemetry.coreSamplesCount} collected; simulated hydroxyl/water-ice processing recovered ${recoveredKwh.toFixed(2)} kWh (after ${sampleEnergyCostKwh.toFixed(2)} kWh collection cost).`
+      : `Surface sample ${sampleTelemetry.coreSamplesCount} collected; no scanned hydrogen-bearing minerals were available for energy recovery.`, sampleTelemetry);
+    setHydrationDetectedSiteId(null);
   };
 
   const handleEndTask = () => {
@@ -497,18 +520,44 @@ const App: React.FC = () => {
                   onRegionChange={(regionId: string) => {
                     const r = LUNAR_REGIONS.find(x => x.id === regionId);
                     if (r) {
+                      const destination = r.sites[0];
                       setCurrentRegion(r);
-                      if (r.sites.length > 0) setSelectedSite(r.sites[0]);
+                      if (destination) {
+                        setHydrationDetectedSiteId(null);
+                        setSelectedSite(destination);
+                        setSelectedSiteId(destination.id);
+                        manualDriveUntilRef.current = 0;
+                        setOperation('IDLE');
+                        setTelemetry((prev) => ({
+                          ...prev,
+                          lat: destination.lat,
+                          lon: destination.lon,
+                          elevation: destination.elevation,
+                          gridX: 0,
+                          gridY: 0,
+                          speedMs: 0,
+                          operation: 'IDLE',
+                          powerDrawWatts: 90,
+                        }));
+                      }
                     }
                   }}
                   onSiteSelect={(site: CandidateSite) => {
+                    setHydrationDetectedSiteId(null);
                     setSelectedSite(site);
                     setSelectedSiteId(site.id);
+                    manualDriveUntilRef.current = 0;
+                    setOperation('IDLE');
                     setTelemetry(prev => ({
                       ...prev,
                       lat: site.lat,
                       lon: site.lon,
                       elevation: site.elevation,
+                      gridX: 0,
+                      gridY: 0,
+                      speedMs: 0,
+                      operation: 'IDLE',
+                      powerDrawWatts: 90,
                     }));
                     addCommand('TARGET_SITE_SELECTED', { site: site.name }, 'UI_BUTTON', 'SUCCESS', `Targeting ${site.name}`);
                   }}
@@ -521,6 +570,7 @@ const App: React.FC = () => {
               {/* Centre: 3D Twin Viewport */}
               <div className="dashboard-twin flex-1 relative overflow-hidden bg-[#030812]">
                 <LunarDigitalTwin
+                  key={`${currentRegion.id}:${selectedSite?.id ?? 'unselected'}`}
                   telemetry={telemetry}
                   selectedSite={selectedSite}
                   obstacleDetected={obstacleDetected}

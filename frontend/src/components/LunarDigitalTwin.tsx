@@ -391,8 +391,11 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
     // ── 6. PHOTOREALISTIC LUNAR TERRAIN & CRATERS ───────────────────────────────
     // Replicating high-resolution LRO orbital reference (dense overlapping craters across all scales)
+    const terrainRegionSeed = (selectedSite?.id ?? 'default-site')
+      .split('')
+      .reduce((seed, character) => (seed * 31 + character.charCodeAt(0)) >>> 0, 7);
     const craterHash = (i: number, j: number, seed: number): number => {
-      const n = Math.sin(i * 127.1 + j * 311.7 + seed * 43.17) * 43758.5453;
+      const n = Math.sin(i * 127.1 + j * 311.7 + seed * 43.17 + terrainRegionSeed * 0.137) * 43758.5453;
       return n - Math.floor(n);
     };
 

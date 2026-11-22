@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DataLayerInfo, LunarRegion, CandidateSite } from '../types';
-import { Layers, MapPin, Eye, CheckCircle2, AlertTriangle, ShieldCheck, Info, ChevronDown, Sparkles } from 'lucide-react';
+import { ShieldCheck, ChevronDown } from 'lucide-react';
 
 interface SciencePanelProps {
   regions: LunarRegion[];
@@ -23,7 +23,7 @@ export const SciencePanel: React.FC<SciencePanelProps> = ({
   onSiteSelect,
   onLayerToggle,
 }) => {
-  const [activeTab, setActiveTab] = useState<'LAYERS' | 'RESOURCES' | 'SITES'>('LAYERS');
+  const [activePanel, setActivePanel] = useState<'COORDINATES' | 'LAYERS' | 'RESOURCES' | 'SITES'>('COORDINATES');
 
   const getBadgeClass = (category: string) => {
     switch (category) {
@@ -68,74 +68,57 @@ export const SciencePanel: React.FC<SciencePanelProps> = ({
         </p>
       </div>
 
-      {/* Live Coordinate & Surface Context HUD */}
-      <div className="p-3 border-b border-[#293235] bg-[#071122]">
-        <div className="flex items-center justify-between text-[10px] uppercase font-bold text-[#a7d9df] mb-1.5">
-          <span>Live Coordinate Query</span>
-          <span className="px-1.5 py-0.2 bg-[#293235] rounded text-[9px] text-emerald-400">SYNCED</span>
+      {/* One compact selector replaces the always-visible coordinate block and science tabs. */}
+      <div className="p-3 border-b border-[#293235] bg-[#080b0e]">
+        <label htmlFor="science-panel-select" className="text-[10px] uppercase tracking-wider text-gray-400 font-bold block mb-1">
+          Site data
+        </label>
+        <div className="relative">
+          <select
+            id="science-panel-select"
+            aria-label="Choose site data"
+            value={activePanel}
+            onChange={(event) => setActivePanel(event.target.value as typeof activePanel)}
+            className="w-full bg-[#080b0e] text-white border border-[#293235] rounded px-2.5 py-2 appearance-none focus:outline-none focus:border-[#a7d9df] font-semibold text-xs pr-8"
+          >
+            <option value="COORDINATES">Live coordinates & terrain</option>
+            <option value="LAYERS">Data layers ({dataLayers.length})</option>
+            <option value="RESOURCES">Mineral assays</option>
+            <option value="SITES">Candidate sites ({currentRegion.sites.length})</option>
+          </select>
+          <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
-        <div className="grid grid-cols-2 gap-2 font-telemetry">
-          <div className="bg-[#080b0e] p-2 rounded border border-[#293235]">
-            <span className="text-[10px] text-gray-400 block">LAT / LON</span>
-            <span className="text-white font-semibold">
-              {roverCoords.lat.toFixed(4)}°S / {roverCoords.lon.toFixed(4)}°E
-            </span>
-          </div>
-          <div className="bg-[#080b0e] p-2 rounded border border-[#293235]">
-            <span className="text-[10px] text-gray-400 block">ELEVATION (DEM)</span>
-            <span className="text-amber-400 font-semibold">{roverCoords.elevation} m</span>
-          </div>
-        </div>
-
-        {/* Traversability Status */}
-        <div className="mt-2 flex items-center justify-between text-[11px] bg-[#191f22] px-2.5 py-1.5 rounded border border-[#3c494d]">
-          <span className="text-gray-300">Surface Traversability:</span>
-          <span className="text-emerald-400 font-bold flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5" /> TRAVERSABLE (Slope 6.4°)
-          </span>
-        </div>
-      </div>
-
-      {/* Tab Switcher */}
-      <div className="flex border-b border-[#293235] bg-[#080b0e]">
-        <button
-          onClick={() => setActiveTab('LAYERS')}
-          className={`flex-1 py-2 text-center font-semibold transition-colors flex items-center justify-center gap-1.5 ${
-            activeTab === 'LAYERS'
-              ? 'text-[#a7d9df] border-b-2 border-[#a7d9df] bg-[#111619]'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Data Layers ({dataLayers.length})</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('RESOURCES')}
-          className={`flex-1 py-2 text-center font-semibold transition-colors flex items-center justify-center gap-1.5 ${
-            activeTab === 'RESOURCES'
-              ? 'text-[#a7d9df] border-b-2 border-[#a7d9df] bg-[#111619]'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Mineral Assays</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('SITES')}
-          className={`flex-1 py-2 text-center font-semibold transition-colors flex items-center justify-center gap-1.5 ${
-            activeTab === 'SITES'
-              ? 'text-[#a7d9df] border-b-2 border-[#a7d9df] bg-[#111619]'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          <MapPin className="w-3.5 h-3.5" />
-          <span>Sites ({currentRegion.sites.length})</span>
-        </button>
       </div>
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-        {activeTab === 'LAYERS' && (
+        {activePanel === 'COORDINATES' && (
+          <section className="space-y-3" aria-label="Live coordinates and terrain">
+            <div className="flex items-center justify-between text-[10px] uppercase font-bold text-[#a7d9df]">
+              <span>Live Coordinate Query</span>
+              <span className="px-1.5 py-0.5 bg-[#293235] rounded text-[9px] text-emerald-400">SYNCED</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 font-telemetry">
+              <div className="bg-[#080b0e] p-2 rounded border border-[#293235]">
+                <span className="text-[10px] text-gray-400 block">LAT / LON</span>
+                <span className="text-white font-semibold">{roverCoords.lat.toFixed(4)}°S / {roverCoords.lon.toFixed(4)}°E</span>
+              </div>
+              <div className="bg-[#080b0e] p-2 rounded border border-[#293235]">
+                <span className="text-[10px] text-gray-400 block">ELEVATION (DEM)</span>
+                <span className="text-white font-semibold">{roverCoords.elevation} m</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-[11px] bg-[#191f22] px-2.5 py-2 rounded border border-[#3c494d]">
+              <span className="text-gray-300">Surface traversability</span>
+              <span className="text-white font-bold flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                {(selectedSite?.slopeDeg ?? 0) <= 12 ? 'TRAVERSABLE' : 'CAUTION'} · {(selectedSite?.slopeDeg ?? 0).toFixed(1)}°
+              </span>
+            </div>
+          </section>
+        )}
+
+        {activePanel === 'LAYERS' && (
           <>
             <div className="text-[10px] text-gray-400 mb-1 flex items-center justify-between">
               <span>Scientific Data Products Registered:</span>
@@ -197,7 +180,7 @@ export const SciencePanel: React.FC<SciencePanelProps> = ({
           </>
         )}
 
-        {activeTab === 'RESOURCES' && (
+        {activePanel === 'RESOURCES' && (
           <div className="space-y-3">
             <div className="bg-[#191f22] p-2.5 rounded border border-[#3c494d]">
               <span className="text-[10px] font-bold uppercase tracking-wider text-[#a7d9df] block mb-1">
@@ -251,7 +234,7 @@ export const SciencePanel: React.FC<SciencePanelProps> = ({
           </div>
         )}
 
-        {activeTab === 'SITES' && (
+        {activePanel === 'SITES' && (
           <div className="space-y-2.5">
             {currentRegion.sites.map((site) => {
               const isSelected = selectedSite?.id === site.id;
