@@ -31,7 +31,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, 
 #root button:active { transform: translateY(1px); }
 #root input, #root select, #root textarea { border-radius: 8px !important; background: #090a0c !important; }
 #root select option { color: var(--paper); background: var(--surface); }
-#root canvas { filter: grayscale(1) contrast(1.1); }
+#root .dashboard-twin canvas { filter: contrast(1.1); }
 #root ::placeholder { color: var(--muted) !important; }
 ::selection { color: var(--ink); background: var(--paper); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }

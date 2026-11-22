@@ -823,12 +823,14 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       // A thick helical spring wound around the full circumference of each tire
       // giving the classic "spring wheel" bounce look used on lunar rovers.
       class TireSpringCurve extends THREE.Curve<THREE.Vector3> {
+        constructor() { super(); }
+
         getPoint(t: number): THREE.Vector3 {
           const phi = t * Math.PI * 2 * 14; // 14 turns wrapping around the tire
-          const tireR = 0.47; // just proud of the 0.44 tire radius
+          const tireR = 0.65; // slightly proud of the 0.62 tire radius
           // Tire cylinder axis is along X (geometry was rotateZ 90°)
           return new THREE.Vector3(
-            (t - 0.5) * 0.40,       // span tire width (0.38 ± a little)
+            (t - 0.5) * 0.54,       // span the 0.52 m tire width
             Math.sin(phi) * tireR,   // radial Y
             Math.cos(phi) * tireR,   // radial Z
           );
@@ -850,11 +852,13 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
       // Inner spring ring at hub shoulder — adds depth & layered look
       class InnerRingCurve extends THREE.Curve<THREE.Vector3> {
+        constructor() { super(); }
+
         getPoint(t: number): THREE.Vector3 {
           const phi = t * Math.PI * 2 * 10; // 10 tight turns near hub
-          const r = 0.28;
+          const r = 0.35;
           return new THREE.Vector3(
-            (t - 0.5) * 0.38,
+            (t - 0.5) * 0.56,
             Math.sin(phi) * r,
             Math.cos(phi) * r,
           );
