@@ -14,7 +14,6 @@ import {
   Eye,
   EyeOff,
   Maximize2,
-  Navigation,
   Sparkles,
   ShieldAlert,
   Sun,
@@ -58,27 +57,6 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     d: false,
     shift: false,
     space: false,
-  });
-
-  const [activeKeys, setActiveKeys] = useState({
-    w: false,
-    a: false,
-    s: false,
-    d: false,
-    shift: false,
-    space: false,
-  });
-
-  const [driveStats, setDriveStats] = useState<{
-    speed: number;
-    heading: number;
-    gear: 'NORMAL' | 'TURBO';
-    elevation: number;
-  }>({
-    speed: 0,
-    heading: Math.round(telemetry.heading),
-    gear: 'NORMAL',
-    elevation: telemetry.elevation,
   });
 
   const onTelemetryUpdateRef = useRef(onTelemetryUpdate);
@@ -173,7 +151,6 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       }
 
       if (changed) {
-        setActiveKeys({ ...keysRef.current });
       }
     };
 
@@ -202,7 +179,6 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       }
 
       if (changed) {
-        setActiveKeys({ ...keysRef.current });
       }
     };
 
@@ -758,17 +734,17 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     suspensionRef.current = [];
 
     const wheelPositions: [number, number, number][] = [
-      [-1.45, 0.42, 0.95],  // 0: Front Left
-      [-1.52, 0.42, 0.0],   // 1: Middle Left
-      [-1.45, 0.42, -0.95], // 2: Rear Left
-      [1.45,  0.42, 0.95],  // 3: Front Right
-      [1.52,  0.42, 0.0],   // 4: Middle Right
-      [1.45,  0.42, -0.95], // 5: Rear Right
+      [-1.45, 0.62, 1.20],  // 0: Front Left
+      [-1.52, 0.62, 0.0],   // 1: Middle Left
+      [-1.45, 0.62, -1.20], // 2: Rear Left
+      [1.45,  0.62, 1.20],  // 3: Front Right
+      [1.52,  0.62, 0.0],   // 4: Middle Right
+      [1.45,  0.62, -1.20], // 5: Rear Right
     ];
 
-    const wheelTireGeo = new THREE.CylinderGeometry(0.44, 0.44, 0.38, 24);
+    const wheelTireGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.52, 28);
     wheelTireGeo.rotateZ(Math.PI / 2);
-    const wheelRimGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.4, 16);
+    const wheelRimGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.54, 20);
     wheelRimGeo.rotateZ(Math.PI / 2);
 
     // Spring Curve generator for 3D helical coil springs
@@ -793,7 +769,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       }
     }
 
-    const springCurve = new SpringHelixCurve(0.062, 0.34, 5.5);
+    const springCurve = new SpringHelixCurve(0.074, 0.46, 6);
     const springGeo = new THREE.TubeGeometry(springCurve, 48, 0.012, 8, false);
 
     // Suspension materials
@@ -835,10 +811,10 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
 
       // Chevron grousers (tread ribs)
       for (let g = 0; g < 8; g++) {
-        const grouserGeo = new THREE.BoxGeometry(0.42, 0.05, 0.05);
+        const grouserGeo = new THREE.BoxGeometry(0.50, 0.065, 0.06);
         const grouser = new THREE.Mesh(grouserGeo, titaniumMat);
         const angle = (g / 8) * Math.PI * 2;
-        grouser.position.set(0, Math.sin(angle) * 0.44, Math.cos(angle) * 0.44);
+        grouser.position.set(0, Math.sin(angle) * 0.62, Math.cos(angle) * 0.62);
         grouser.rotation.x = angle;
         wheelAssembly.add(grouser);
       }
@@ -1258,6 +1234,17 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
     let roverSimZ = telemetry.gridY * 0.15;
     let roverHeadingRad = (telemetry.heading * Math.PI) / 180;
     let currentSpeed = 0; // m/s
+    // Simplified, force-based lunar mobility model. The rover is a project
+    // concept (850 kg); wheel torque and regolith coefficients are explicit
+    // assumptions, while lunar gravity and VIPER speed limits are sourced.
+    const roverMassKg = 850;
+    const lunarGravity = 1.62;
+    const wheelRadiusM = 0.62;
+    const wheelTorqueNm = 250; // fast-drive tuning assumption per wheel
+    const regolithTractionCoefficient = 0.85; // fast-drive traction tuning assumption
+    const rollingResistanceCoefficient = 0.08; // assumed soft-regolith resistance
+    const wheelBaseM = 2.9;
+    const maxSteerAngleRad = 20 * Math.PI / 180;
     let distanceAccum = telemetry.distanceTravelledM || 0;
     let lastTelemetryPushTime = 0;
     let userDriveTimer = 0;
@@ -1288,13 +1275,11 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
       const isManual = isAnyKeyPressed || userDriveTimer > 0;
 
       if (isManual) {
-        // --- WASD Drive Physics ---
-        const maxForwardSpeed = keys.shift ? 4.2 : 2.2; // m/s (Turbo vs Normal)
-        const maxReverseSpeed = 1.4; // m/s
-        const accelRate = 3.2; // m/s²
-        const dragRate = 2.4;  // m/s² lunar regolith rolling friction
-        const brakeRate = 8.5; // m/s² mechanical disc braking
-
+        // --- Simplified wheel force + lunar terramechanics ---
+        // User-selected manual speed limits. These exceed VIPER's reference
+        // speeds; terrain grade, lunar gravity and traction still affect motion.
+        const maxForwardSpeed = keys.shift ? 8.0 : 4.0;
+        const maxReverseSpeed = keys.shift ? 3.0 : 2.0;
         let targetAccel = 0;
         if (keys.w && !keys.s) {
           targetAccel = 1;
@@ -1302,40 +1287,45 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           targetAccel = -1;
         }
 
-        if (keys.space) {
-          // Sharp brake
-          if (currentSpeed > 0) {
-            currentSpeed = Math.max(0, currentSpeed - brakeRate * delta);
-          } else if (currentSpeed < 0) {
-            currentSpeed = Math.min(0, currentSpeed + brakeRate * delta);
-          }
-        } else if (targetAccel > 0) {
-          if (currentSpeed < maxForwardSpeed) {
-            currentSpeed = Math.min(maxForwardSpeed, currentSpeed + accelRate * delta);
-          }
-        } else if (targetAccel < 0) {
-          if (currentSpeed > -maxReverseSpeed) {
-            currentSpeed = Math.max(-maxReverseSpeed, currentSpeed - accelRate * delta);
-          }
-        } else {
-          // Natural deceleration to stop
-          if (currentSpeed > 0) {
-            currentSpeed = Math.max(0, currentSpeed - dragRate * delta);
-          } else if (currentSpeed < 0) {
-            currentSpeed = Math.min(0, currentSpeed + dragRate * delta);
-          }
-        }
-
-        // Steer heading (Yaw)
-        const steerRate = 1.6; // rad/s
         let steerInput = 0;
         if (keys.a && !keys.d) {
-          steerInput = -1; // Left / counter-clockwise
+          steerInput = -1;
         } else if (keys.d && !keys.a) {
-          steerInput = 1;  // Right / clockwise
+          steerInput = 1;
         }
 
-        roverHeadingRad += steerInput * steerRate * delta;
+        // Estimate grade in the direction of travel from the height field.
+        const sampleDistanceM = 0.5;
+        const currentGround = getTerrainHeight(roverSimX, roverSimZ);
+        const groundAhead = getTerrainHeight(
+          roverSimX + Math.sin(roverHeadingRad) * sampleDistanceM,
+          roverSimZ + Math.cos(roverHeadingRad) * sampleDistanceM,
+        );
+        const gradeRad = Math.atan2(groundAhead - currentGround, sampleDistanceM);
+        const normalForceN = roverMassKg * lunarGravity * Math.cos(gradeRad);
+        const tractionLimitN = regolithTractionCoefficient * (keys.shift ? 1.15 : 1.0) * normalForceN;
+        const motorForceLimitN = (6 * wheelTorqueNm) / wheelRadiusM;
+        const driveForceN = targetAccel * Math.min(motorForceLimitN, tractionLimitN);
+        const gradeForceN = roverMassKg * lunarGravity * Math.sin(gradeRad);
+        const resistanceDirection = Math.sign(currentSpeed) || targetAccel;
+        const rollingForceN = rollingResistanceCoefficient * normalForceN * resistanceDirection;
+        let acceleration = (driveForceN - gradeForceN - rollingForceN) / roverMassKg;
+
+        if (keys.space) {
+          // Brakes oppose motion; cap force to avoid reversing the rover.
+          const brakingAcceleration = 3.0;
+          acceleration = currentSpeed === 0
+            ? 0
+            : -Math.sign(currentSpeed) * Math.min(brakingAcceleration, Math.abs(currentSpeed) / Math.max(delta, 1e-3));
+        }
+
+        currentSpeed += acceleration * delta;
+        if (!targetAccel && Math.abs(currentSpeed) < 0.005) currentSpeed = 0;
+        currentSpeed = Math.max(-maxReverseSpeed, Math.min(maxForwardSpeed, currentSpeed));
+
+        // Bicycle-model steering with a real wheelbase; turning radius grows as speed falls.
+        const steerAngle = steerInput * maxSteerAngleRad;
+        roverHeadingRad += (currentSpeed / wheelBaseM) * Math.tan(steerAngle) * delta;
 
         // Move position along heading
         const sinH = Math.sin(roverHeadingRad);
@@ -1357,13 +1347,6 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           const speedAbs = Math.abs(currentSpeed);
           const isMoving = speedAbs > 0.05;
 
-          setDriveStats({
-            speed: parseFloat(speedAbs.toFixed(2)),
-            heading: Math.round(degHeading),
-            gear: keys.shift ? 'TURBO' : 'NORMAL',
-            elevation: Math.round(-2840 + groundY * 8),
-          });
-
           if (onTelemetryUpdateRef.current) {
             onTelemetryUpdateRef.current((prev) => ({
               ...prev,
@@ -1374,7 +1357,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
               distanceTravelledM: parseFloat(distanceAccum.toFixed(1)),
               elevation: Math.round(-2840 + groundY * 8),
               powerDrawWatts: Math.round(240 + speedAbs * 125 + (keys.shift ? 75 : 0)),
-              operation: isMoving ? 'NAVIGATING' : (prev.operation === 'NAVIGATING' ? 'STANDBY' : prev.operation),
+              operation: isMoving ? 'NAVIGATING' : (prev.operation === 'NAVIGATING' ? 'IDLE' : prev.operation),
             }));
           }
         }
@@ -1397,12 +1380,12 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
         // 1. Calculate physical ground elevation directly beneath each of the 6 individual wheels
         const wheelGroundHeights: number[] = [];
         const wheelOffsets = [
-          { x: -1.45, z: 0.95 },  // 0: Front Left
+          { x: -1.45, z: 1.20 },  // 0: Front Left
           { x: -1.52, z: 0.0 },   // 1: Middle Left
-          { x: -1.45, z: -0.95 }, // 2: Rear Left
-          { x: 1.45,  z: 0.95 },  // 3: Front Right
+          { x: -1.45, z: -1.20 }, // 2: Rear Left
+          { x: 1.45,  z: 1.20 },  // 3: Front Right
           { x: 1.52,  z: 0.0 },   // 4: Middle Right
-          { x: 1.45,  z: -0.95 }, // 5: Rear Right
+          { x: 1.45,  z: -1.20 }, // 5: Rear Right
         ];
 
         for (let i = 0; i < 6; i++) {
@@ -1418,17 +1401,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           wheelGroundHeights[3] + wheelGroundHeights[4] + wheelGroundHeights[5]
         ) / 6.0;
 
-        // 3. 6-point rocker-bogie pitch & roll calculation (absorbs single-wheel bumps smoothly)
-        const hFront = (wheelGroundHeights[0] + wheelGroundHeights[3]) * 0.5;
-        const hRear  = (wheelGroundHeights[2] + wheelGroundHeights[5]) * 0.5;
-        const hLeft  = (wheelGroundHeights[0] + wheelGroundHeights[1] + wheelGroundHeights[2]) / 3.0;
-        const hRight = (wheelGroundHeights[3] + wheelGroundHeights[4] + wheelGroundHeights[5]) / 3.0;
-
-        // Longitudinal baseline = 1.90m, lateral baseline = 2.94m
-        const targetPitch = Math.atan2(hFront - hRear, 1.90);
-        const targetRoll  = Math.atan2(hRight - hLeft, 2.94);
-
-        // 4. Stable critically-damped chassis attitude (eliminates jitter and sudden snapping)
+        // 3. Keep the upper chassis level; each wheel absorbs its own terrain change.
         const pos = roverGroupRef.current.position;
         pos.x = roverSimX;
         pos.z = roverSimZ;
@@ -1437,19 +1410,18 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
         const targetChassisY = avgTerrainY + 0.015;
         pos.y += (targetChassisY - pos.y) * Math.min(1.0, delta * 9.0);
 
-        // Critically damped pitch & roll for silky-smooth, stable gliding
         roverGroupRef.current.rotation.order = 'YXZ';
         roverGroupRef.current.rotation.y = roverHeadingRad;
-        roverGroupRef.current.rotation.x += (targetPitch - roverGroupRef.current.rotation.x) * Math.min(1.0, delta * 6.5);
-        roverGroupRef.current.rotation.z += (-targetRoll - roverGroupRef.current.rotation.z) * Math.min(1.0, delta * 6.5);
+        roverGroupRef.current.rotation.x = 0;
+        roverGroupRef.current.rotation.z = 0;
 
         // 5. Independent 6-Wheel Hydraulic & Spring Suspension Deflection
         suspensionRef.current.forEach((susp, i) => {
           const groundUnderWheel = wheelGroundHeights[i];
           // Wheel elevation error relative to chassis plane
           const terrainDelta = groundUnderWheel - avgTerrainY;
-          // Clamp physical suspension travel stroke: [-0.20m, +0.20m]
-          const clampedTravel = Math.max(-0.20, Math.min(0.20, terrainDelta));
+          // Long-travel suspension keeps the payload deck level across wheel-sized rocks.
+          const clampedTravel = Math.max(-0.42, Math.min(0.42, terrainDelta));
 
           // Viscous hydraulic damper interpolation (absorbs bumps smoothly)
           susp.currentDeflection += (clampedTravel - susp.currentDeflection) * Math.min(1.0, delta * 12.0);
@@ -1471,7 +1443,7 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
         });
 
         // 6. Wheel roll and double Ackermann steering
-        const wheelRollDelta = (currentSpeed / 0.44) * delta;
+        const wheelRollDelta = (currentSpeed / wheelRadiusM) * delta;
         const steerInput = (keys.a ? -1 : 0) + (keys.d ? 1 : 0);
         const steerAngle = steerInput * 0.35; // ~20 degrees wheel pivot
         wheelsRef.current.forEach((wheel, idx) => {
@@ -1491,13 +1463,10 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
           }
         });
 
-        // 7. Subtle regolith traction feedback (stable micro-damping, no harsh wobble)
-        if (Math.abs(currentSpeed) > 0.05 && chassisRef.current) {
-          const grouserFreq = (Math.abs(currentSpeed) / 0.44) * 8; // 8 grousers per tire rotation
-          chassisRef.current.position.y = Math.sin(time * grouserFreq) * 0.003;
-          chassisRef.current.rotation.z = Math.sin(time * (grouserFreq * 0.5)) * 0.0015;
-        } else if (chassisRef.current) {
+        // Keep the payload body calm; tire articulation handles the bump response.
+        if (chassisRef.current) {
           chassisRef.current.position.y = 0;
+          chassisRef.current.rotation.x = 0;
           chassisRef.current.rotation.z = 0;
         }
 
@@ -1863,97 +1832,6 @@ export const LunarDigitalTwin: React.FC<LunarDigitalTwinProps> = ({
         </div>
       )}
 
-      {/* Bottom Left: Interactive Real-Time WASD Telemetry Controller */}
-      {hudVisible && (
-        <div className="absolute bottom-4 left-4 z-20 bg-[#09152B]/90 backdrop-blur-md p-3 rounded-xl border border-[#1A2E50] shadow-2xl flex flex-col gap-2 font-mono text-xs select-none">
-          <div className="flex items-center justify-between gap-3 border-b border-[#1A2E50]/80 pb-1.5">
-            <span className="text-[#60B8FF] font-bold text-[11px] tracking-wider flex items-center gap-1.5">
-              <Navigation className="w-3.5 h-3.5 text-[#38BDF8]" />
-              MANUAL PILOT [WASD]
-            </span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                driveStats.gear === 'TURBO'
-                  ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40'
-                  : 'bg-[#1A2E50] text-[#94A3B8]'
-              }`}
-            >
-              {driveStats.gear}
-            </span>
-          </div>
-
-          {/* Drive key indicators */}
-          <div className="flex flex-col items-center gap-1">
-            {/* W Key */}
-            <div
-              className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
-                activeKeys.w
-                  ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
-                  : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
-              }`}
-            >
-              W
-            </div>
-            {/* A S D Keys */}
-            <div className="flex gap-1">
-              <div
-                className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
-                  activeKeys.a
-                    ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
-                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
-                }`}
-              >
-                A
-              </div>
-              <div
-                className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
-                  activeKeys.s
-                    ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
-                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
-                }`}
-              >
-                S
-              </div>
-              <div
-                className={`w-8 h-8 rounded border flex items-center justify-center font-bold text-xs transition-all ${
-                  activeKeys.d
-                    ? 'bg-[#38BDF8] text-[#050D1B] border-[#38BDF8] shadow-[0_0_12px_rgba(56,189,248,0.6)] scale-95'
-                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
-                }`}
-              >
-                D
-              </div>
-            </div>
-            {/* Shift & Space Bar */}
-            <div className="flex gap-1 w-full mt-0.5">
-              <div
-                className={`flex-1 py-1 rounded border text-center font-bold text-[10px] transition-all ${
-                  activeKeys.shift
-                    ? 'bg-amber-400 text-black border-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
-                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
-                }`}
-              >
-                ⇧ BOOST
-              </div>
-              <div
-                className={`flex-1 py-1 rounded border text-center font-bold text-[10px] transition-all ${
-                  activeKeys.space
-                    ? 'bg-red-500 text-white border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
-                    : 'bg-[#0f172a] text-[#94A3B8] border-[#334155]'
-                }`}
-              >
-                ␣ BRAKE
-              </div>
-            </div>
-          </div>
-
-          {/* Real-time speed & heading gauge */}
-          <div className="flex justify-between items-center text-[10px] text-[#94A3B8] border-t border-[#1A2E50]/80 pt-1.5 mt-0.5">
-            <span>VEL: <strong className="text-white">{driveStats.speed.toFixed(1)} m/s</strong></span>
-            <span>HDG: <strong className="text-white">{driveStats.heading}°</strong></span>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -87,6 +87,7 @@ export interface RoverTelemetry {
   lon: number;
   elevation: number;
   heading: number; // degrees
+  speedMs?: number; // metres per second during manual driving
   gridX: number; // local simulation meters
   gridY: number;
   batterySoc: number; // % (0-100)
@@ -181,4 +182,42 @@ export interface MissionReport {
   scientificDetections: string[];
   anomaliesEncountered: number;
   finalRoverStatus: string;
+}
+
+export type TaskActionKind = 'MOVE' | 'ROTATE' | 'SCAN' | 'DRILL' | 'SAMPLE';
+
+export interface TaskActionRecord {
+  id: string;
+  kind: TaskActionKind;
+  recordedAt: string;
+  summary: string;
+  latitude: number;
+  longitude: number;
+  elevationM: number;
+  headingDeg: number;
+  speedMs: number;
+  drillDepthM: number;
+  batteryPct: number;
+}
+
+export interface ActiveTaskSession {
+  id: string;
+  taskNumber: number;
+  startedAt: string;
+  startTelemetry: RoverTelemetry;
+  actions: TaskActionRecord[];
+}
+
+export interface TaskReport {
+  id: string;
+  taskNumber: number;
+  regionName: string;
+  siteName: string;
+  startedAt: string;
+  endedAt: string;
+  durationSeconds: number;
+  startTelemetry: RoverTelemetry;
+  endTelemetry: RoverTelemetry;
+  actions: TaskActionRecord[];
+  status: 'COMPLETED';
 }

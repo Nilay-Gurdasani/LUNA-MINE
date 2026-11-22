@@ -1,30 +1,33 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Target, Bot } from 'lucide-react';
+import { Bot } from 'lucide-react';
 import { MissionReport, api } from './api/client';
 import {
   RoverTelemetry,
   OperationState,
   CommandLogEntry,
   DecisionRecommendation,
-  MissionObjective,
   AppTab,
   CandidateSite,
+  ActiveTaskSession,
+  TaskActionKind,
+  TaskActionRecord,
+  TaskReport,
 } from './types';
-import { LUNAR_REGIONS, INITIAL_DATA_LAYERS, INITIAL_OBJECTIVES } from './data/lunarData';
+import { LUNAR_REGIONS, INITIAL_DATA_LAYERS } from './data/lunarData';
 
 // Components
 import { Header } from './components/Header';
 import { LunarDigitalTwin } from './components/LunarDigitalTwin';
 import { SciencePanel } from './components/SciencePanel';
 import { TelemetryPanel } from './components/TelemetryPanel';
-import { ObjectivesPanel } from './components/ObjectivesPanel';
 import { AdaptiveIntelligenceCard } from './components/AdaptiveIntelligenceCard';
-import { CommandConsole } from './components/CommandConsole';
 import { SiteAssessmentView } from './components/SiteAssessmentView';
 import { MissionBuilder } from './components/MissionBuilder';
 import { MissionReportView } from './components/MissionReportView';
 import { ScenariosView } from './components/ScenariosView';
 import { PitchDeckModal } from './components/PitchDeckModal';
+import { TaskControlBar } from './components/TaskControlBar';
+import { TaskReportsView } from './components/TaskReportsView';
 
 // ── Initial rover telemetry for the 3D Digital Twin ──────────────────────────
 const INITIAL_TELEMETRY: RoverTelemetry = {
@@ -37,7 +40,7 @@ const INITIAL_TELEMETRY: RoverTelemetry = {
   storageUsedL: 89, storageCapacityL: 350,
   coreSamplesCount: 3,
   drillDepthM: 0, targetDrillDepthM: 2.5,
-  operation: 'NAVIGATING',
+  operation: 'IDLE',
   distanceTravelledM: 420,
   missionElapsedSeconds: 0,
   isPaused: false,
@@ -51,6 +54,16 @@ const App: React.FC = () => {
   // ── Cross-view backend state ──────────────────────────────────────────────
   const [selectedSiteId, setSelectedSiteId] = useState<string>('site_shackleton');
   const [latestReport, setLatestReport] = useState<MissionReport | null>(null);
+  const [taskReports, setTaskReports] = useState<TaskReport[]>(() => {
+    try { return JSON.parse(localStorage.getItem('luna-mine-task-reports') || '[]') as TaskReport[]; }
+    catch { return []; }
+  });
+  const [activeTask, setActiveTask] = useState<ActiveTaskSession | null>(() => {
+    try {
+      const saved = localStorage.getItem('luna-mine-active-task');
+      return saved ? JSON.parse(saved) as ActiveTaskSession : null;
+    } catch { return null; }
+  });
 
   // ── Dashboard 3D Twin state ───────────────────────────────────────────────
   const [simSpeed, setSimSpeed] = useState<number>(1);
@@ -59,48 +72,74 @@ const App: React.FC = () => {
   const [currentRegion, setCurrentRegion] = useState(LUNAR_REGIONS[0]);
   const [selectedSite, setSelectedSite] = useState<CandidateSite | null>(LUNAR_REGIONS[0].sites[0]);
   const [dataLayers, setDataLayers] = useState(INITIAL_DATA_LAYERS);
-  const [objectives, setObjectives] = useState<MissionObjective[]>(INITIAL_OBJECTIVES);
   const [recommendation, setRecommendation] = useState<DecisionRecommendation | null>(null);
-  const [commandLogs, setCommandLogs] = useState<CommandLogEntry[]>([]);
+  const [, setCommandLogs] = useState<CommandLogEntry[]>([]);
   const [telemetry, setTelemetry] = useState<RoverTelemetry>({ ...INITIAL_TELEMETRY });
-  const [operation, setOperation] = useState<OperationState>('NAVIGATING');
+  const [operation, setOperation] = useState<OperationState>('IDLE');
   const [obstacleDetected, setObstacleDetected] = useState<boolean>(false);
-  const [showObjectivesHUD, setShowObjectivesHUD] = useState<boolean>(false);
   const [showAdaptiveHUD, setShowAdaptiveHUD] = useState<boolean>(false);
+  const manualDriveUntilRef = useRef(0);
+  const lastManualActionAtRef = useRef(0);
 
-  // MET clock ticks for the 3D digital twin
+  useEffect(() => {
+    localStorage.setItem('luna-mine-task-reports', JSON.stringify(taskReports));
+  }, [taskReports]);
+
+  useEffect(() => {
+    if (activeTask) localStorage.setItem('luna-mine-active-task', JSON.stringify(activeTask));
+    else localStorage.removeItem('luna-mine-active-task');
+  }, [activeTask]);
+
+  useEffect(() => {
+    if (activeTask) {
+      setElapsedSeconds(Math.max(0, (Date.now() - Date.parse(activeTask.startedAt)) / 1000));
+    }
+  }, []);
+
+  // Task timer, rover motion, and telemetry only run inside an active task.
+  const taskIsActive = activeTask !== null;
   const metRef = useRef<number | null>(null);
   useEffect(() => {
-    if (activeTab !== 'DASHBOARD') return;
-    if (isPaused) { if (metRef.current) clearInterval(metRef.current); return; }
+    if (activeTab !== 'DASHBOARD' || !taskIsActive || isPaused) {
+      if (metRef.current) clearInterval(metRef.current);
+      return;
+    }
     metRef.current = window.setInterval(() => {
-      setElapsedSeconds(s => s + simSpeed);
+      const dt = 0.25 * simSpeed;
+      setElapsedSeconds(s => s + dt);
       setTelemetry(prev => {
-        // Dynamic simulation increments while navigating
-        let newDist = prev.distanceTravelledM;
-        let newSoc = prev.batterySoc;
-        let newEnergy = prev.remainingEnergyKwh;
-
-        if (prev.operation === 'NAVIGATING' || prev.operation === 'RETURNING') {
-          newDist += (0.8 / 3.6) * simSpeed;
-          newSoc = Math.max(5, newSoc - (0.002 * simSpeed));
-          newEnergy = Math.max(0.5, (newSoc / 100) * prev.batteryCapacityKwh);
-        } else if (prev.operation === 'DRILLING') {
-          newSoc = Math.max(5, newSoc - (0.008 * simSpeed));
-          newEnergy = Math.max(0.5, (newSoc / 100) * prev.batteryCapacityKwh);
+        let gridX = prev.gridX;
+        let gridY = prev.gridY;
+        let distanceTravelledM = prev.distanceTravelledM;
+        const isMoving = prev.operation === 'NAVIGATING' || prev.operation === 'RETURNING';
+        if (isMoving && Date.now() > manualDriveUntilRef.current) {
+          const speed = Math.max(0, prev.speedMs ?? 1);
+          const stepM = speed * dt;
+          const heading = prev.heading * Math.PI / 180;
+          gridX += Math.sin(heading) * stepM / 0.15;
+          gridY += Math.cos(heading) * stepM / 0.15;
+          distanceTravelledM += stepM;
         }
+
+        const energyUsedKwh = Math.max(0, prev.powerDrawWatts) * dt / 3_600_000;
+        const remainingEnergyKwh = Math.max(0, prev.remainingEnergyKwh - energyUsedKwh);
+        const batterySoc = prev.batteryCapacityKwh > 0
+          ? (remainingEnergyKwh / prev.batteryCapacityKwh) * 100
+          : prev.batterySoc;
 
         return {
           ...prev,
-          missionElapsedSeconds: prev.missionElapsedSeconds + simSpeed,
-          distanceTravelledM: Math.round(newDist * 10) / 10,
-          batterySoc: Math.round(newSoc * 10) / 10,
-          remainingEnergyKwh: Math.round(newEnergy * 100) / 100,
+          gridX,
+          gridY,
+          missionElapsedSeconds: prev.missionElapsedSeconds + dt,
+          distanceTravelledM: Math.round(distanceTravelledM * 100) / 100,
+          batterySoc: Math.round(batterySoc * 100) / 100,
+          remainingEnergyKwh: Math.round(remainingEnergyKwh * 1000) / 1000,
         };
       });
-    }, 1000);
+    }, 250);
     return () => { if (metRef.current) clearInterval(metRef.current); };
-  }, [isPaused, simSpeed, activeTab]);
+  }, [isPaused, simSpeed, activeTab, taskIsActive]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleSelectSite = useCallback((siteId: string) => {
@@ -134,6 +173,133 @@ const App: React.FC = () => {
     }, ...prev.slice(0, 49)]);
   }
 
+  const nextTaskNumber = Math.max(0, ...taskReports.map((report) => report.taskNumber)) + 1;
+
+  const recordTaskAction = (kind: TaskActionKind, summary: string, snapshot: RoverTelemetry = telemetry) => {
+    const action: TaskActionRecord = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      kind,
+      recordedAt: new Date().toISOString(),
+      summary,
+      latitude: snapshot.lat,
+      longitude: snapshot.lon,
+      elevationM: snapshot.elevation,
+      headingDeg: Math.round(snapshot.heading),
+      speedMs: snapshot.speedMs ?? 0,
+      drillDepthM: snapshot.drillDepthM,
+      batteryPct: snapshot.batterySoc,
+    };
+    setActiveTask((task) => task ? { ...task, actions: [...task.actions, action] } : task);
+  };
+
+  const handleStartTask = () => {
+    const startedAt = new Date().toISOString();
+    const taskNumber = nextTaskNumber;
+    const initial: ActiveTaskSession = {
+      id: `TASK-${String(taskNumber).padStart(3, '0')}`,
+      taskNumber,
+      startedAt,
+      startTelemetry: { ...telemetry },
+      actions: [],
+    };
+    manualDriveUntilRef.current = 0;
+    lastManualActionAtRef.current = 0;
+    setElapsedSeconds(0);
+    setActiveTask(initial);
+    setIsPaused(false);
+    setOperation('NAVIGATING');
+    setTelemetry((prev) => ({ ...prev, operation: 'NAVIGATING', speedMs: 1, isPaused: false, isEmergencyStop: false, powerDrawWatts: 340 }));
+    addCommand('START_TASK', { taskNumber }, 'UI_BUTTON', 'SUCCESS', 'Task started. Rover traverse and telemetry capture are active.');
+  };
+
+  const handleTaskMove = () => {
+    const movingTelemetry = { ...telemetry, operation: 'NAVIGATING' as const, speedMs: Math.max(1, telemetry.speedMs ?? 0), powerDrawWatts: 340 };
+    setOperation('NAVIGATING');
+    setIsPaused(false);
+    setTelemetry(movingTelemetry);
+    manualDriveUntilRef.current = 0;
+    recordTaskAction('MOVE', 'Traverse started. Manual steering is available.', movingTelemetry);
+  };
+
+  const handleTaskRotate = () => {
+    const heading = (telemetry.heading + 90) % 360;
+    const rotatedTelemetry = { ...telemetry, heading, speedMs: 0, operation: 'IDLE' as const, powerDrawWatts: 90 };
+    setOperation('IDLE');
+    setTelemetry(rotatedTelemetry);
+    recordTaskAction('ROTATE', `Rover rotated 90° to heading ${Math.round(heading)}°.`, rotatedTelemetry);
+  };
+
+  const handleTaskScan = () => {
+    const scanTelemetry = { ...telemetry, speedMs: 0, operation: 'SCANNING' as const, powerDrawWatts: 420 };
+    setOperation('SCANNING');
+    setTelemetry(scanTelemetry);
+    recordTaskAction('SCAN', `Simulated surface scan recorded at heading ${Math.round(telemetry.heading)}°.`, scanTelemetry);
+  };
+
+  const handleTaskDrill = () => {
+    const depth = Math.min(telemetry.targetDrillDepthM, telemetry.drillDepthM + 0.5);
+    const drillTelemetry = {
+      ...telemetry,
+      speedMs: 0,
+      operation: 'DRILLING' as const,
+      drillDepthM: depth,
+      storageUsedKg: Math.min(telemetry.storageCapacityKg, telemetry.storageUsedKg + 35),
+      powerDrawWatts: 880,
+    };
+    setOperation('DRILLING');
+    setTelemetry(drillTelemetry);
+    recordTaskAction('DRILL', `Drill reached ${depth.toFixed(2)} m depth; simulated regolith yield added.`, drillTelemetry);
+  };
+
+  const handleTaskSample = () => {
+    const sampleTelemetry = {
+      ...telemetry,
+      speedMs: 0,
+      operation: 'SAMPLING' as const,
+      coreSamplesCount: telemetry.coreSamplesCount + 1,
+      storageUsedKg: Math.min(telemetry.storageCapacityKg, telemetry.storageUsedKg + 18),
+      powerDrawWatts: 290,
+    };
+    setOperation('SAMPLING');
+    setTelemetry(sampleTelemetry);
+    recordTaskAction('SAMPLE', `Surface sample ${sampleTelemetry.coreSamplesCount} collected.`, sampleTelemetry);
+  };
+
+  const handleEndTask = () => {
+    if (!activeTask) return;
+    const endedAt = new Date().toISOString();
+    const finalTelemetry = { ...telemetry, speedMs: 0, operation: 'IDLE' as const, isPaused: false };
+    const report: TaskReport = {
+      id: activeTask.id,
+      taskNumber: activeTask.taskNumber,
+      regionName: currentRegion.name,
+      siteName: selectedSite?.name ?? currentRegion.name,
+      startedAt: activeTask.startedAt,
+      endedAt,
+      durationSeconds: Math.max(elapsedSeconds, (Date.parse(endedAt) - Date.parse(activeTask.startedAt)) / 1000),
+      startTelemetry: activeTask.startTelemetry,
+      endTelemetry: finalTelemetry,
+      actions: activeTask.actions,
+      status: 'COMPLETED',
+    };
+    setTaskReports((reports) => [report, ...reports]);
+    setActiveTask(null);
+    setOperation('IDLE');
+    setTelemetry(finalTelemetry);
+    setIsPaused(false);
+    addCommand('END_TASK', { taskNumber: activeTask.taskNumber }, 'UI_BUTTON', 'SUCCESS', 'Task ended. Report saved to Mission Report.');
+    setActiveTab('REPORT');
+  };
+
+  const handleManualTelemetryUpdate = (updater: (prev: RoverTelemetry) => RoverTelemetry) => {
+    manualDriveUntilRef.current = Date.now() + 2200;
+    if (activeTask && Date.now() - lastManualActionAtRef.current > 4000) {
+      lastManualActionAtRef.current = Date.now();
+      recordTaskAction('MOVE', 'Manual rover driving recorded.', telemetry);
+    }
+    setTelemetry(updater);
+  };
+
   const handleEmergencyStop = useCallback(() => {
     setIsPaused(true);
     setOperation('SAFE_STOP');
@@ -155,7 +321,6 @@ const App: React.FC = () => {
     setTelemetry({ ...INITIAL_TELEMETRY });
     setCommandLogs([]);
     setRecommendation(null);
-    setObjectives(INITIAL_OBJECTIVES);
   }, []);
 
   const handleTogglePause = useCallback(() => {
@@ -165,73 +330,6 @@ const App: React.FC = () => {
       return next;
     });
   }, []);
-
-  // ── Unified Command Execution (CLI + Console Buttons + Keyboard) ─────────
-  const handleExecuteCommand = useCallback((
-    command: string,
-    params?: Record<string, any>,
-    source?: 'CLI' | 'UI_BUTTON' | 'KEYBOARD_SHORTCUT',
-  ) => {
-    const cmdUpper = command.toUpperCase();
-
-    if (cmdUpper.includes('MOVE') || cmdUpper.includes('NAVIGATE')) {
-      setOperation('NAVIGATING');
-      setIsPaused(false);
-      setTelemetry(prev => ({ ...prev, operation: 'NAVIGATING', isPaused: false, powerDrawWatts: 340 }));
-      addCommand(command, params ?? {}, source ?? 'CLI', 'SUCCESS', 'Traverse locomotion engaged. Waypoint tracking active.');
-      // Update first objective
-      setObjectives(prev => prev.map(o => o.id === 'obj-2' ? { ...o, status: 'IN_PROGRESS' } : o));
-    }
-    else if (cmdUpper.includes('SCAN')) {
-      setOperation('SCANNING');
-      setTelemetry(prev => ({ ...prev, operation: 'SCANNING', powerDrawWatts: 420 }));
-      addCommand(command, params ?? {}, source ?? 'CLI', 'SUCCESS', 'Surface LiDAR & CPR radar array emitting active sweep.');
-    }
-    else if (cmdUpper.includes('SAMPLE')) {
-      setOperation('SAMPLING');
-      setTelemetry(prev => ({
-        ...prev,
-        operation: 'SAMPLING',
-        coreSamplesCount: prev.coreSamplesCount + 1,
-        storageUsedKg: Math.min(prev.storageCapacityKg, prev.storageUsedKg + 18),
-        powerDrawWatts: 290,
-      }));
-      addCommand(command, params ?? {}, source ?? 'CLI', 'SUCCESS', 'Regolith surface sample scooped. Payload bay updated.');
-    }
-    else if (cmdUpper.includes('DRILL')) {
-      setOperation('DRILLING');
-      const depthIncrement = params?.targetDepth ? params.targetDepth : 0.5;
-      setTelemetry(prev => {
-        const nextDepth = Math.min(prev.targetDrillDepthM, prev.drillDepthM + depthIncrement);
-        return {
-          ...prev,
-          operation: 'DRILLING',
-          drillDepthM: nextDepth,
-          storageUsedKg: Math.min(prev.storageCapacityKg, prev.storageUsedKg + 35),
-          powerDrawWatts: 880,
-        };
-      });
-      addCommand(command, params ?? {}, source ?? 'CLI', 'SUCCESS', `Rotary percussive drill penetrating lunar crust.`);
-      // Update drill objective
-      setObjectives(prev => prev.map(o => o.id === 'obj-3' ? { ...o, status: 'IN_PROGRESS' } : o));
-    }
-    else if (cmdUpper.includes('PROCESS')) {
-      setOperation('PROCESSING');
-      setTelemetry(prev => ({ ...prev, operation: 'PROCESSING', powerDrawWatts: 620 }));
-      addCommand(command, params ?? {}, source ?? 'CLI', 'SUCCESS', 'Thermal sublimation reactors engaged. Volatiles condensing.');
-    }
-    else if (cmdUpper.includes('RETURN')) {
-      setOperation('RETURNING');
-      setTelemetry(prev => ({ ...prev, operation: 'RETURNING', powerDrawWatts: 310 }));
-      addCommand(command, params ?? {}, source ?? 'CLI', 'SUCCESS', 'Heading inverted towards Artemis base camp.');
-    }
-    else if (cmdUpper.includes('STOP') || cmdUpper.includes('HALT')) {
-      handleEmergencyStop();
-    }
-    else {
-      addCommand(command, params ?? {}, source ?? 'CLI', 'SUCCESS', 'Command acknowledged by vehicle flight software.');
-    }
-  }, [elapsedSeconds, handleEmergencyStop]);
 
   // ── Adaptive Event Simulation ─────────────────────────────────────────────
   const handleInjectEvent = useCallback((type: 'OBSTACLE' | 'LOW_BATTERY' | 'THERMAL_SPIKE' | 'COMMS_DELAY') => {
@@ -385,11 +483,11 @@ const App: React.FC = () => {
 
         {/* ── DASHBOARD: 3D Digital Twin ── */}
         {activeTab === 'DASHBOARD' && (
-          <div className="h-[calc(100vh-53px)] flex flex-col">
+          <div className="dashboard-shell h-[calc(100vh-53px)] flex flex-col">
             {/* Three-panel row */}
-            <div className="flex flex-1 overflow-hidden min-h-0">
+            <div className="dashboard-panels flex flex-1 overflow-hidden min-h-0">
               {/* Left sidebar: Science assays and data layers */}
-              <div className="w-72 xl:w-80 flex-shrink-0 flex flex-col overflow-y-auto border-r border-[#1A2E50]">
+              <div className="dashboard-science w-72 xl:w-80 flex-shrink-0 flex flex-col overflow-y-auto border-r border-[#1A2E50]">
                 <SciencePanel
                   regions={LUNAR_REGIONS}
                   currentRegion={currentRegion}
@@ -421,33 +519,22 @@ const App: React.FC = () => {
               </div>
 
               {/* Centre: 3D Twin Viewport */}
-              <div className="flex-1 relative overflow-hidden bg-[#030812]">
+              <div className="dashboard-twin flex-1 relative overflow-hidden bg-[#030812]">
                 <LunarDigitalTwin
                   telemetry={telemetry}
                   selectedSite={selectedSite}
                   obstacleDetected={obstacleDetected}
-                  onTelemetryUpdate={setTelemetry}
+                  onTelemetryUpdate={handleManualTelemetryUpdate}
                 />
 
-                {/* Mission Objectives HUD overlay (collapsible to keep 4K 3D view unobstructed) */}
-                <div className="absolute top-14 left-3 z-10 w-72 pointer-events-auto">
-                  <div className="flex items-center justify-between mb-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowObjectivesHUD(v => !v)}
-                      className="flex items-center gap-1.5 bg-[#09152B]/90 hover:bg-[#1A2E50] border border-[#1A2E50] text-xs px-2.5 py-1 rounded text-[#60B8FF] font-semibold cursor-pointer shadow-md transition-all"
-                    >
-                      <Target className="w-3.5 h-3.5" />
-                      <span>Objectives ({objectives.filter(o => o.status === 'COMPLETED').length}/{objectives.length})</span>
-                      <span className="text-gray-400 text-[10px]">{showObjectivesHUD ? '▲' : '▼'}</span>
-                    </button>
-                  </div>
-                  {showObjectivesHUD && (
-                    <div className="mt-1 shadow-2xl">
-                      <ObjectivesPanel objectives={objectives} />
-                    </div>
-                  )}
-                </div>
+                {!activeTask && (
+                  <section className="task-start-overlay">
+                    <span className="task-eyebrow">TASK {String(nextTaskNumber).padStart(2, '0')} · READY</span>
+                    <h1>Start a surface task</h1>
+                    <p>Begin rover traverse and record movement, scans, samples, and drill activity.</p>
+                    <button className="start-task-button" onClick={handleStartTask}>Start task</button>
+                  </section>
+                )}
 
                 {/* Adaptive Intelligence Card overlay (collapsible, auto-opens on active intervention) */}
                 <div className="absolute bottom-16 left-3 z-10 w-80 pointer-events-auto">
@@ -480,19 +567,26 @@ const App: React.FC = () => {
               </div>
 
               {/* Right sidebar: Live rover telemetry and subsystem health */}
-              <div className="w-72 xl:w-80 flex-shrink-0 flex flex-col overflow-y-auto border-l border-[#1A2E50]">
+              <div className="dashboard-telemetry w-72 xl:w-80 flex-shrink-0 flex flex-col overflow-y-auto border-l border-[#1A2E50]">
                 <TelemetryPanel telemetry={telemetry} />
               </div>
             </div>
 
-            {/* Bottom command bar */}
-            <div className="flex-shrink-0">
-              <CommandConsole
-                operation={operation}
-                commandLogs={commandLogs}
-                onExecuteCommand={handleExecuteCommand}
+            {activeTask && (
+              <TaskControlBar
+                taskNumber={activeTask.taskNumber}
+                elapsedSeconds={elapsedSeconds}
+                actions={activeTask.actions}
+                speedMs={telemetry.speedMs ?? 0}
+                heading={telemetry.heading}
+                onEnd={handleEndTask}
+                onMove={handleTaskMove}
+                onRotate={handleTaskRotate}
+                onScan={handleTaskScan}
+                onDrill={handleTaskDrill}
+                onSample={handleTaskSample}
               />
-            </div>
+            )}
           </div>
         )}
 
@@ -520,7 +614,9 @@ const App: React.FC = () => {
         {/* ── REPORT: Latest mission report ── */}
         {activeTab === 'REPORT' && (
           <div className="min-h-[calc(100vh-53px)]">
-            {latestReport ? (
+            {taskReports.length > 0 ? (
+              <TaskReportsView reports={taskReports} onBack={() => setActiveTab('DASHBOARD')} />
+            ) : latestReport ? (
               <MissionReportView
                 report={latestReport}
                 onClose={() => setActiveTab('MISSION')}

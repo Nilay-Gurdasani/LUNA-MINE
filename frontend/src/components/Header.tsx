@@ -128,28 +128,22 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Main Navigation Tabs */}
-      <nav className="flex items-center space-x-1 bg-[#080b0e] p-1 rounded-lg border border-[#293235] text-xs overflow-x-auto max-w-full">
-        {navItems.map(({ tab, label, icon }) => {
-          const isActive = activeTab === tab;
-          return (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => onTabChange(tab)}
-              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-md font-semibold text-xs transition-all whitespace-nowrap cursor-pointer active:scale-95 ${
-                isActive
-                  ? 'bg-[#293235] text-white shadow-sm border border-[#3c494d] text-[#a7d9df]'
-                  : 'text-gray-300 hover:text-white hover:bg-[#191f22]'
-              }`}
-            >
-              {icon}
-              <span className={isActive ? 'font-bold text-[#a7d9df]' : 'text-gray-300'}>
-                {label}
-              </span>
-            </button>
-          );
-        })}
+      {/* Single navigation menu for every workspace */}
+      <nav className="flex items-center gap-2 bg-[#080b0e] px-3 py-2 rounded-xl border border-[#293235] text-xs max-w-full">
+        <label htmlFor="main-navigation" className="font-mono text-[10px] tracking-widest text-gray-400 whitespace-nowrap">
+          WORKSPACE
+        </label>
+        <select
+          id="main-navigation"
+          aria-label="Choose workspace"
+          value={activeTab}
+          onChange={(event) => onTabChange(event.target.value as AppTab)}
+          className="min-w-44 px-3 py-2 font-semibold text-sm cursor-pointer"
+        >
+          {navItems.map(({ tab, label }) => (
+            <option key={tab} value={tab}>{label}</option>
+          ))}
+        </select>
       </nav>
 
       {/* Simulator Execution Clock & Global Controls */}
